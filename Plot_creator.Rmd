@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(janitor)
 library(here)
+library(viridis)
 
 source(here("UV_Vis_reader.R"))
 source(here("FTIR_reader.R"))
@@ -25,7 +26,7 @@ FTIR_path = "~/Research/harvard/FTIR/"
 ```
 
 #UV-Vis individual plotting
-```{R}
+```{R, show_col_types = F}
 
 UVVis_individual <- list.files(path = UVVis_path, 
                     pattern = ".csv", 
@@ -34,6 +35,11 @@ UVVis_individual <- list.files(path = UVVis_path,
   map(.f = \(x) read_uv_vis(x)) %>% 
   list_rbind()
 
+ugh <- UVVis_individual %>% 
+  count(concentration_value, concentration_type) %>% 
+  mutate(conc_order = str_c(concentration_value, concentration_type))
+
+
 UVVis_summ <- UVVis_individual %>% 
   summarise(mean = mean(value), 
             max = max(value), 
@@ -41,7 +47,9 @@ UVVis_summ <- UVVis_individual %>%
             .by = c(wavelength_nm, 
                     solvent, 
                     dye, 
-                    concentration, 
+                    concentration,
+                    concentration_value, 
+                    concentration_type,
                     machine, 
                     attachment, 
                     mode)) %>% 
@@ -58,29 +66,114 @@ UVVis_summ <- UVVis_individual %>%
          min_perc_absorbance = 100 - max_perc_transmittance - max_perc_reflectance) %>% 
   pivot_longer(cols = starts_with(c("max_", "min_", "mean_")),
                names_to = c(".value", NA, "mode"), 
-               names_sep = "_")
+               names_sep = "_") %>% 
+  arrange(concentration_value, wavelength_nm)
 
-
+#plotting
+#MinOilandSurf - 0086
 UVVis_summ %>% 
-  filter(mode == "absorbance", 
-         color == "black") %>% 
+  filter(solvent %in% c("MinOilandSurf"), 
+         dye == "0086") %>% 
   drop_na(mean) %>% 
   ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
-  geom_ribbon(aes(ymax = max, ymin = min, fill = interaction(solvent, dye)), alpha = 0.5) +
-  geom_line(aes(y = mean, color = interaction(solvent, dye), linetype = concentration)) +
-  scale_y_continuous(limits = c(-5, 105)) + 
-  labs(y = "Percent of Total Intensity (%)", x = "Wavelength (nm)")
-
-UVVis_summ %>% 
-  filter(color == "black", 
-         solvent == "MinOilandSurf") %>% 
-  drop_na(mean) %>% 
-  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
-  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration), alpha = 0.5) + 
-  geom_line(aes(y = mean, color = concentration)) + 
-  scale_y_continuous(limits = c(-5, 105)) + 
-  labs(y = "Percent of Total Intensity (%)", x = "Wavelength (nm)", title = "0086 in Mineral Oil with Surfactant") + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = concentration_value)) + 
+  scale_y_continuous(limits = c(-5, 105)) +  
+  scale_color_viridis_c(transform = "log2", option = "H") + 
+  scale_fill_viridis_c(transform = "log2", option = "H") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)", 
+       title = "0086 Perylene black in Mineral Oil with surfactant dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
   facet_wrap(facets = vars(mode))
+
+UVVis_summ %>% 
+  filter(solvent %in% c("MinOilandSurf"), 
+         dye == "0086") %>% 
+  drop_na(mean) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = as.factor(concentration_value)), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = as.factor(concentration_value))) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)", 
+       title = "0086 Perylene black in Mineral Oil with surfactant dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+
+#IPA - P25
+UVVis_summ %>% 
+  filter(solvent %in% c("IPA"), 
+         dye == "P25") %>% 
+  drop_na(mean) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = concentration_value)) + 
+  scale_y_continuous(limits = c(-5, 105)) +  
+  scale_color_viridis_c(transform = "log2", option = "H") + 
+  scale_fill_viridis_c(transform = "log2", option = "H") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)",
+       title = "P25 in IPA dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+UVVis_summ %>% 
+  filter(solvent %in% c("IPA"), 
+         dye == "P25") %>% 
+  drop_na(mean) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = as.factor(concentration_value)), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = as.factor(concentration_value))) +
+  scale_y_continuous(limits = c(-5, 105)) + 
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)", 
+       title = "P25 in IPA dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+
+#IPA - R960
+UVVis_summ %>% 
+  filter(solvent %in% c("IPA"), 
+         dye == "R960") %>% 
+  drop_na(mean) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = concentration_value)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(transform = "log2", option = "H") + 
+  scale_fill_viridis_c(transform = "log2", option = "H") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)", 
+       title = "R960 in IPA dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+UVVis_summ %>% 
+  filter(dye == "R960") %>% 
+  drop_na(mean) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = as.factor(concentration_value)), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = as.factor(concentration_value), linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)", 
+       title = "R960 in IPA dilutions", 
+       color = "concentration (mg/mL)", 
+       fill = "concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+UVVis_summ %>% 
+  filter(concentration_value == 0, mode == "transmittance") %>% 
+  ggplot(aes(x = wavelength_nm, y = mean, color = solvent)) + 
+  geom_line()
 ```
 
 #FTIR individual plotting
@@ -124,14 +217,6 @@ FTIR_summ %>%
   filter(mode == "absorbance") %>% 
   ggplot(aes(x = wavelength_nm, y = mean, color = concentration, linetype = solvent)) + 
   geom_line()
-  
-
-FTIR_individual %>% 
-  filter(concentration == "0.25mgml", 
-         solvent == "MinOil")
-  
-  
-
 ```
 
 
@@ -164,8 +249,9 @@ total_summ = bind_rows(FTIR_summ, UVVis_summ) %>%
          )
 
 total_summ %>% 
-  filter(color == "black", 
+  filter(color == "black",
          light_range %in% c("Visible", "NIR", "MIR")) %>% 
+  drop_na(mean) %>% 
   ggplot(aes(x = wavelength_nm, 
              y = mean, 
              color = concentration, 
@@ -176,6 +262,7 @@ total_summ %>%
              scales = "free_x", 
              switch = "both") + 
   theme(axis.text.x = element_text(size = 0), 
-        axis.ticks = element_line(size = 0))
+        axis.ticks = element_line(size = 0), 
+        axis.title = element_text(size = 0)) 
   
 ```
