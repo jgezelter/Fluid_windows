@@ -416,3 +416,32 @@ gook %>%
 ggsave("~/Downloads/fluid-comparison.png", units = "in", width = 10, height = 6)
 
 ```
+
+
+#comparison of old method and new method for fluids
+```{r}
+gook <- UVVis_IS_summ %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf") %>% 
+  mutate(method = "standard-old", 
+         concentration = concentration_value, 
+         concentration_units = concentration_type, 
+         particle_size_um = 0.5, 
+         value = mean)
+
+guuk <- fluid_IS_with_metadata %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf")
+
+guuk %>% 
+  bind_rows(gook) %>% 
+  filter(mode != "", 
+         method %in% c("Center0", "Center45", "standard-old")) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = concentration, color = concentration)) + 
+  geom_line() + 
+  facet_grid(cols = vars(method), 
+             rows = vars(mode)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2")
+
+ggsave("~/Downloads/method-comparison-R960.png", units = "in", height = 6, width = 8)
+```

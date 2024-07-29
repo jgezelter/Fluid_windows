@@ -176,11 +176,11 @@ read_uv_vis_is_film <- function(file){
                                               str_detect(x, "measurement_type") ~ "measurement_type",
                                               .default = "value")}) %>% 
       mutate(sample = sample, 
-             id = basename(path), 
+             scan_info = str_extract(basename(path), ".+(?=\\.)"), 
              date = basename(dirname(path))) %>% 
-      separate(id, into = c(NA, NA, NA, NA, "mode"), sep = "_") %>% 
+      separate(scan_info, into = c(NA, "attachment", "mode"), sep = "_", remove = F) %>% 
       separate(sample, 
-               into = c("film", "power", "time", "thickness", "attachment", "mode", "measurement_num"), 
+               into = c("film", "power", "time", "thickness", NA, NA, "measurement_num"), 
                sep = "_", 
                remove = F) 
     if(!str_detect(sample, "Baseline")){

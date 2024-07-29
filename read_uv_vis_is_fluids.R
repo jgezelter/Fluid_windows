@@ -26,7 +26,10 @@ read_uv_vis_is_fluid <- function(path){
       mutate(mode = case_when(mode == "C" ~ str_c("C-", str_extract(sample_id, "(?<=-)[:digit:]+")), 
                               .default = mode), 
              sample_id = case_when(str_detect(sample_id, "-") ~ str_extract(sample_id, ".+(?=-)"), 
-                                   .default = sample_id))
+                                   .default = sample_id)) %>% 
+      filter(!str_detect(wavelength_nm, "[^[:digit:]]")) %>% 
+      mutate(wavelength_nm = as.numeric(wavelength_nm), 
+             value = as.numeric(value))
     
     if(!str_detect(sample, "Baseline")){
       out <- out %>% rbind(data_cur)

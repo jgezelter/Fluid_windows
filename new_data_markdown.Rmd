@@ -24,7 +24,7 @@ fluid_IS <- list.files("~/Research/harvard/fluids/unprocessed_data",
            recursive = T, 
            full.names = T, 
            pattern = ".csv") %>% 
-  map(.f = \(x) read_uv_vis_is_fluid(x)) %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x) %>% drop_na(value)) %>% 
   list_rbind() %>% 
   drop_na(wavelength_nm) %>% 
   mutate(mode = case_when(mode == "T" ~ "perc_Transmittance_standard", 
@@ -33,9 +33,11 @@ fluid_IS <- list.files("~/Research/harvard/fluids/unprocessed_data",
                           mode == "C-5" ~ "perc__Center5",
                           mode == "C-10" ~ "perc__Center10",
                           mode == "C-15" ~ "perc__Center15", 
-                          mode == "C-45" ~ "perc__Center45"))
+                          mode == "C-45" ~ "perc__Center45", 
+                          .default = mode))
 
 write_csv(fluid_IS, file = "~/Research/harvard/fluids/fluid_IS.cvs")
+
 ```
 
 ##Read Data
@@ -48,14 +50,24 @@ fluid_IS <- read_csv("~/Research/harvard/fluids/fluid_IS.cvs")
 fluid_IS_with_metadata <- fluid_IS %>% 
   select(!date) %>% 
   pivot_wider(names_from = c(mode), 
-              values_from = c(value)) %>% 
-  mutate(perc_Absorptance_standard = 100 - perc_Transmittance_standard - perc_Reflectance_standard, 
-         perc_Absorptance_center0 = 100 - perc__Center0,
-         perc_Absorptance_center5 = 100 - perc__Center5,
-         perc_Absorptance_center10 = 100 - perc__Center10,
-         perc_Absorptance_center15 = 100 - perc__Center15, 
-         perc_Absorptance_center45 = 100 - perc__Center45, 
-         perc_Reflectance_center0 = perc__Center0 - perc_Transmittance_standard
+              values_from = c(value), 
+              values_fill = NA) %>% 
+  mutate(perc_Absorptance_standard = 100 - perc_Transmittance_standard - perc_Reflectance_standard,
+         perc_Transmittance_Center0 = perc_Transmittance_standard,
+         perc_Transmittance_Center5 = perc_Transmittance_standard,
+         perc_Transmittance_Center10 = perc_Transmittance_standard,
+         perc_Transmittance_Center15 = perc_Transmittance_standard,
+         perc_Transmittance_Center45 = perc_Transmittance_standard,
+         perc_Absorptance_Center0 = 100 - perc__Center0,
+         perc_Absorptance_Center5 = 100 - perc__Center5,
+         perc_Absorptance_Center10 = 100 - perc__Center10,
+         perc_Absorptance_Center15 = 100 - perc__Center15, 
+         perc_Absorptance_Center45 = 100 - perc__Center45, 
+         perc_Reflectance_Center0 = perc__Center0 - perc_Transmittance_Center0, 
+         perc_Reflectance_Center5 = perc__Center5 - perc_Transmittance_Center5,
+         perc_Reflectance_Center10 = perc__Center10 - perc_Transmittance_Center10,
+         perc_Reflectance_Center15 = perc__Center15 - perc_Transmittance_Center15,
+         perc_Reflectance_Center45 = perc__Center45 - perc_Transmittance_Center45
          ) %>% 
   pivot_longer(cols = starts_with(c("perc_")),
                names_to = c(NA, "mode", "method"), 
@@ -108,7 +120,7 @@ fluid_IS_with_metadata %>%
   filter(sample_id != "fluid025", 
          dye == "R960", 
          solvent == "MinOilandSurf", 
-         mode %in% c("")) %>% 
+         mode %in% c("Absorptance")) %>% 
   ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
   geom_line(aes(y = value, color = concentration, linetype = solvent)) + 
   scale_y_continuous(limits = c(-5, 105)) + 
@@ -136,6 +148,32 @@ fluid_IS_with_metadata %>%
        color = "Method of Measurement")
 
 ggsave("~/Downloads/R960-256mgml-measurement-methods.png", units = "in", width = 8, height = 6)
+
+fluid_IS_with_metadata %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf",
+         method %in% c("Center0"), 
+         mode == "Reflectance") %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = concentration, color = concentration)) + 
+  geom_line() + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       title = "Center - Transmission")
+
+fluid_IS_with_metadata %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf",
+         method %in% c("Center45"), 
+         mode == "Reflectance") %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = concentration, color = concentration)) + 
+  geom_line() + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       title = "Center - Transmission")
+
+ggsave("~/Downloads/R960-256mgml-Center-original.png", units = "in", width = 7, height = 5)
 
 ```
 
@@ -170,8 +208,6 @@ film_FTIR_IS <- list.files(path_film_FTIR_IS,
                             full.names = T) %>% 
   map(.f = \(x) read_FTIR_IS_film(x)) %>% 
   bind_rows() %>% 
-  select(!c(date, meta)) %>% 
-  filter(mode != "T") %>% 
   mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
          sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_")) 
 
@@ -194,7 +230,8 @@ film_FTIR_SR <- list.files(path_film_FTIR_SR,
 ##Plotting
 ```{r}
 film_UVVis_IS %>% 
-  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  drop_na(mode) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = film)) + 
   geom_line() + 
   facet_wrap(facets = vars(mode)) + 
   labs(x = "Wavelength (nm)", 
@@ -205,7 +242,7 @@ film_UVVis_IS %>%
 ggsave("~/Downloads/film-UVVis-IS.png", units = "in", width = 10, height = 5)
 
 film_FTIR_IS %>% 
-  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  ggplot(aes(x = wavelength_nm, y = value, color = film)) + 
   geom_line() + 
   labs(x = "Wavelength (nm)", 
        y = "Percent Reflectance (%)", 
