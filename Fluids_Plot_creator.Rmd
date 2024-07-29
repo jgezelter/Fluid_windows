@@ -23,7 +23,7 @@ source(here("FTIR_reader.R"))
 
 #data locations
 ```{r}
-UVVis_IS_path = "~/Research/harvard/fluids/UVVis_IS/"
+UVVis_IS_path = "~/Research/harvard/deprecated (old method for UV-Vis IS)/fluids/UVVis_IS"
 UVVis_UMA_path = "~/Research/harvard/fluids/UVVis_UMA/"
 FTIR_path = "~/Research/harvard/fluids/FTIR/"
 ```
@@ -35,7 +35,7 @@ UVVis_IS_individual <- list.files(path = UVVis_IS_path,
                     pattern = ".csv", 
                     recursive = T, 
                     full.names = T) %>% 
-  map(.f = \(x) read_uv_vis_is_fluid(x)) %>% 
+  map(.f = \(x) read_uv_vis_is_fluid_old(x)) %>% 
   list_rbind() %>% 
   filter(wavelength_nm %% 5 == 0)
 
@@ -73,8 +73,8 @@ UVVis_IS_summ <- UVVis_IS_individual %>%
                     machine, 
                     attachment, 
                     mode)) %>% 
-  mutate(mode = case_when(mode == "T" ~ "perc_transmittance", 
-                          mode == "R" ~ "perc_reflectance"), 
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance", 
+                          mode == "R" ~ "perc_Reflectance"), 
          color = case_when(dye == "0086" ~ "black", 
                            dye == "P25" ~ "white", 
                            dye == "R960" ~ "white", 
@@ -85,21 +85,32 @@ UVVis_IS_summ <- UVVis_IS_individual %>%
                            .default = NA)) %>% 
   pivot_wider(names_from = c(mode), 
               values_from = c(mean, max, min)) %>% 
-  mutate(mean_perc_absorptance = 100 - mean_perc_transmittance - mean_perc_reflectance, 
-         max_perc_absorptance = 100 - min_perc_transmittance - min_perc_reflectance,
-         min_perc_absorptance = 100 - max_perc_transmittance - max_perc_reflectance) %>% 
+  mutate(mean_perc_Absorptance = 100 - mean_perc_Transmittance - mean_perc_Reflectance, 
+         max_perc_Absorptance = 100 - min_perc_Transmittance - min_perc_Reflectance,
+         min_perc_Absorptance = 100 - max_perc_Transmittance - max_perc_Reflectance) %>% 
   pivot_longer(cols = starts_with(c("max_", "min_", "mean_")),
                names_to = c(".value", NA, "mode"), 
                names_sep = "_") %>% 
   arrange(concentration_value, wavelength_nm)
+
+gook <- UVVis_IS_individual %>% 
+  filter(dye == "0086") %>% 
+  select(wavelength_nm, value, sample, mode) %>% 
+  pivot_wider(values_from = c(value), 
+              names_from = c(sample, mode), 
+              names_sep = "-")
+
+write_csv(gook, 
+          "~/Downloads/Perylene-black-data-col-optimized.csv")
 ```
 
 ##UV-Vis plotting
 ```{r}
 UVVis_IS_summ %>% 
   filter(attachment == "IS", 
-         color == "white", 
-         dye != "TiO2-disp") %>% 
+         color == "black", 
+         dye != "TiO2-disp", 
+         solvent != "IPAandSurf") %>% 
   drop_na(mean, concentration) %>% 
   ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
   geom_ribbon(aes(ymax = max, ymin = min, fill = as.factor(concentration_value)), alpha = 0.5) + 
@@ -107,7 +118,6 @@ UVVis_IS_summ %>%
   scale_y_continuous(limits = c(-5, 105)) + 
   labs(y = "Percent of Total Intensity (%)", 
        x = "Wavelength (nm)", 
-       title = "White Dyes", 
        color = "Concentration (mg/mL)", 
        fill = "Concentration (mg/mL)") + 
   facet_grid(rows = vars(mode), 
@@ -118,7 +128,8 @@ ggsave("~/Downloads/White-Dyes-discrete.png", units = "in", width = 12, height =
 UVVis_IS_summ %>% 
   filter(attachment == "IS", 
          color == "white", 
-         dye != "TiO2-disp") %>% 
+         dye != "TiO2-disp", 
+         solvent != "IPAandSurf") %>% 
   drop_na(mean, concentration) %>% 
   ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
   geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
@@ -127,26 +138,53 @@ UVVis_IS_summ %>%
   scale_color_viridis_c(option = "plasma", transform = "log2") +
   scale_fill_viridis_c(option = "plasma", transform = "log2") +
   labs(y = "Percent of Total Intensity (%)", 
-       x = "Wavelength (nm)", 
-       title = "White Dyes", 
+       x = "Wavelength (nm)",
        color = "Concentration (mg/mL)", 
        fill = "Concentration (mg/mL)") + 
   facet_grid(rows = vars(mode), 
              cols = vars(dye))
 
-UVVis_IS_summ %>% 
-  filter(solvent == "double") %>% 
-  ggplot(aes(x = wavelength_nm)) + 
-  geom_line(aes(y = mean)) + 
-  facet_wrap(facets = vars(mode))
-
 ggsave("~/Downloads/White-Dyes-continuous.png", units = "in", width = 12, height = 6)
 
 
-UVVis_summ %>%
-  filter(concentration_value == 2, mode == "transmittance", solvent == "MinOilandSurf") %>% 
-  ggplot(aes(x = wavelength_nm, y = mean, color = solvent)) + 
-  geom_line()
+UVVis_IS_summ %>% 
+  filter(attachment == "IS", 
+         color == "black", 
+         solvent == "MinOilandSurf") %>% 
+  drop_na(mean, concentration) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = concentration_value, linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_wrap(facets = vars(mode))
+
+ggsave("~/Downloads/Perylene-black.png", units = "in", width = 10, height = 4)
+
+UVVis_IS_summ %>% 
+  filter(attachment == "IS", 
+         dye %in% c("R960", "0086"), 
+         solvent %in% c("IPA", "MinOilandSurf")) %>% 
+  drop_na(mean, concentration) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
+  geom_line(aes(y = mean, color = concentration_value)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_d(option = "plasma", transform = "log2") +
+  scale_fill_viridis_d(option = "plasma", transform = "log2") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_grid(rows = vars(mode), 
+             cols = vars(dye))
+
+ggsave("~/Downloads/R960-solvent-comparison.png", units = "in", width = 7, height = 4)
 ```
 #UV-Vis UMA data working
 ```{R, show_col_types = F}
@@ -267,6 +305,46 @@ FTIR_summ %>%
   geom_line()
 ```
 
+#double slit cassettes
+```{r}
+gruck <- UVVis_IS_individual %>% 
+  filter(dye == "R960", 
+         concentration %in% c("64mgml", "256mgml", "512mgml")) %>% 
+  select(c(wavelength_nm, value, sample, machine, attachment, mode, date))
+
+UVVis_IS_individual %>% 
+  filter(str_detect(sample, "double")) %>% 
+  select(c(wavelength_nm, value, sample, machine, attachment, mode, date)) %>% 
+  # separate(sample, 
+  #          into = c(NA, "solv_1", "dye_1", "conc_1", "solv_2", "dye_2", "conc_2", "measurement_num"), 
+  #          remove = F) %>% 
+  # mutate(conc_1_value = str_extract(conc_1, "[:digit:]+"), 
+  #        conc_1_unit = str_extract(conc_1, "[:alpha:]+"),
+  #        conc_2_value = str_extract(conc_2, "[:digit:]+"), 
+  #        conc_2_unit = str_extract(conc_2, "[:alpha:]+"), 
+  #        mode = case_when(mode == "T" ~ "perc_transmittance", 
+  #                         mode == "R" ~ "perc_reflectance")) %>% 
+  bind_rows(gruck) %>% 
+  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               names_to = "mode", 
+               values_to = "value") %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode)) + 
+  theme(legend.position = "bottom", 
+        legend.direction = "vertical") + 
+  labs(x = "Wavelength (nm)", y = "Percent of total intensity (%)")
+
+ggsave("~/Downloads/Double-cassette-comparison.png", units = "in", width = 8, height = 4)
+  
+```
+
+
 
 #combined plotting
 ```{r}
@@ -322,4 +400,7 @@ madison <- read_xlsx("~/Downloads/All_Madison_updated.xlsx") %>%
 madison %>% 
   ggplot(aes(x = wavenumber, y = percent_r_ftir)) +
   geom_path()
+
+UVVis_IS_individual %>% 
+  count(sample)
 ```

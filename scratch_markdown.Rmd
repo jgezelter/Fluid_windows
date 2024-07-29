@@ -1,0 +1,418 @@
+---
+title: '20240715'
+output: html_document
+date: "2024-07-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+tests_20240715 <- list.files(path = "~/Research/harvard/20240715-UVVis", 
+                    pattern = ".csv", 
+                    recursive = T, 
+                    full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_20240715(x)) %>% 
+  list_rbind()
+
+```
+
+```{r}
+tests_20240715 %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = sample, color = sample)) +
+  geom_line() + 
+  facet_wrap(facets = vars(mode))
+```
+
+
+```{r}
+small_test_standard <- c("~/Research/harvard/20240715-UVVis/small_UVVis_IS_T.csv", "~/Research/harvard/20240715-UVVis/small_UVVis_IS_R.csv") %>% 
+  map(.f = \(x) read_uv_vis_is_20240715(x)) %>% 
+  list_rbind() %>% 
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance", 
+                          mode == "R" ~ "perc_Reflectance")) %>% 
+  pivot_wider(names_from = c(mode), 
+              values_from = c(value)) %>% 
+  mutate(perc_Absorptance = 100 - perc_Transmittance - perc_Reflectance) %>% 
+  pivot_longer(cols = starts_with(c("perc_")),
+               names_to = c(".value", "mode"), 
+               names_sep = "_") %>% 
+  mutate(value = perc, .keep = "unused") %>% 
+  filter(mode == "Absorptance")
+
+UVVis_IS_individual %>% 
+  filter(wavelength_nm == 2495, 
+         solvent == "MinOilandSurf", 
+         concentration_value == 0)
+
+bare_minoil <- c("~/Research/harvard/fluids/UVVis_IS/20240624/UVVis_IS_T.csv", "~/Research/harvard/fluids/UVVis_IS/20240624/UVVis_IS_R.csv") %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x)) %>% 
+  list_rbind() %>% 
+  filter(solvent == "MinOilandSurf", 
+         concentration_value == 0) %>% 
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance", 
+                          mode == "R" ~ "perc_Reflectance")) %>% 
+  select(!measurement_type) %>% 
+  pivot_wider(names_from = mode, 
+              values_from = value) %>% 
+  mutate(perc_Absorptance = 100 - perc_Transmittance - perc_Reflectance) %>% 
+  pivot_longer(cols = starts_with(c("perc_")),
+               names_to = c(".value", "mode"), 
+               names_sep = "_") %>% 
+  mutate(value = perc, .keep = "unused") %>% 
+  filter(mode == "Absorptance")
+
+small_center <- read_uv_vis_is_20240715("~/Research/harvard/20240715-UVVis/small_UVVis_IS_C-45.csv") %>% 
+  mutate(mode = "Absorptance", 
+         value = 100 - value)
+
+data <- bind_rows(small_test_standard, bare_minoil, small_center)
+
+data %>% 
+  mutate(sample = case_when(sample == "MinOilandSurf__0mgml_ms1" ~ "bare oil, normal method", 
+                            sample == "MinOilandSurf_P25_32mgml_ms1" ~ "P25 32 mg/mL, 100 - center (45°)",
+                            sample == "smol_fluid_MinOilandSurf_P25_32mgml" ~ "P25 32 mg/mL, normal method")) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample)) + 
+  geom_line() +
+  labs(y = "Absorptance (%)", x = "Wavelength (nm)")
+
+```
+
+```{r}
+large_hole <- c("~/Research/harvard/20240716_more_weirds/UVVis_IS_R.csv", "~/Research/harvard/20240716_more_weirds/UVVis_IS_T.csv") %>% 
+  map(.f = \(x) read_uv_vis_is_20240715(x)) %>% 
+  list_rbind() %>% 
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance", 
+                          mode == "R" ~ "perc_Reflectance")) %>% 
+  select(!measurement_type) %>% 
+  pivot_wider(names_from = c(mode), 
+              values_from = c(value)) %>% 
+  mutate(perc_Absorptance = 100 - perc_Transmittance - perc_Reflectance) %>% 
+  pivot_longer(cols = starts_with(c("perc_")),
+               names_to = c(".value", "mode"), 
+               names_sep = "_") %>% 
+  mutate(value = perc, .keep = "unused") %>% 
+  filter(sample != "just_glass")
+
+center <- read_uv_vis_is_20240715("~/Research/harvard/20240716_more_weirds/UVVis_Is_C.csv") %>% 
+  mutate(mode = "Absorptance", 
+         value = 100 - value) %>% 
+  select(!measurement_type) 
+
+center2 <- center %>% 
+  filter(str_detect(sample, "P25"))
+
+P25_32 <- UVVis_IS_summ %>% 
+  filter(dye == "P25", 
+         concentration_value == 32)
+
+large_hole  %>% 
+  bind_rows(center2) %>%
+  bind_rows(P25_32 %>% mutate(value = mean) )%>% 
+  filter(mode == "Absorptance") %>%  
+  mutate(sample = case_when((str_detect(sample, "MinOil") & str_detect(date, "20240716")) ~ "standard method - large hole", 
+                            solvent == "IPA" ~ "standard method",
+                            .default = str_c(str_extract(sample, "(?<=_)[:digit:]+"), "\u00b0"))) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample)) + 
+  geom_line() + 
+  labs(x = "Wavelength (nm)", y = "Absorptance (%)", title = "comparison of absorptance detection methods")
+  
+   read_uv_vis_is_20240715("~/Research/harvard/20240716_more_weirds/UVVis_Is_C.csv") %>% 
+    ggplot(aes(x = wavelength_nm, y = value, color = sample)) + 
+    geom_line() + 
+    labs(x = "Wavelength (nm)", y = "% of baseline intensity", title = "Comparison of sample angles in center attachment")
+```
+
+
+#films
+```{r}
+path_film_UVVis_IS <- "~/Research/harvard/films/UVVis_IS"
+path_film_UVVis_UMA <- "~/Research/harvard/films/UVVis_UMA"
+path_film_FTIR_IS <- "~/Research/harvard/films/FTIR_IS"
+path_film_FTIR_SR <- "~/Research/harvard/films/FTIR_SR"
+
+
+film_UVVis_IS <- list.files(path_film_UVVis_IS, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_film(x) %>% 
+        filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
+        mutate(wavelength_nm = as.numeric(wavelength_nm), 
+               value = as.numeric(value))) %>% 
+  bind_rows() 
+%>% 
+  select(!measurement_type) %>% 
+  select(wavelength_nm, value, sample) 
+
+film_UVVis_IS %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode))
+
+film_UV
+
+%>% 
+  pivot_wider(values_from = value, 
+              names_from = sample)
+
+write_csv(film_UVVis_IS, file = "~/Downloads/film_UVVis_IS.csv")
+
+film_UVVis_UMA <- list.files(path_film_UVVis_UMA, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_uma_film(x)) %>% 
+  bind_rows() %>% 
+  select(wavelength_nm, value, angle_of_incidence, film, power, time, thickness, detector_angle) %>% 
+  filter(!is.na(detector_angle), 
+         detector_angle != 180) %>% 
+  drop_na(wavelength_nm) %>% 
+  mutate(sample = str_c(film, power, time, thickness, angle_of_incidence, sep = "_")) %>% 
+  select(wavelength_nm, value, sample) %>% 
+  pivot_wider(values_from = value, 
+              names_from = sample)
+
+write_csv(film_UVVis_UMA, file = "~/Downloads/film_UVVis_UMA.csv")
+
+film_FTIR_IS <- list.files(path_film_FTIR_IS, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  select(!c(date, meta)) %>% 
+  mutate(measurement = str_extract(measurement, "[^.CSV]+"), 
+         sample = str_c(film, power, time, thickness, mode, measurement, sep = "_")) %>% 
+  select(wavelength_nm, value, sample) %>% 
+  pivot_wider(values_from = value, 
+              names_from = sample)
+
+write_csv(film_FTIR_IS, file = "~/Downloads/film_FTIR_IS.csv")
+
+film_FTIR_SR <- list.files(path_film_FTIR_SR, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  mutate(measurement = str_extract(measurement, "[^.CSV]+"), 
+         sample = str_c(film, power, time, thickness, mode, measurement, sep = "_")) %>% 
+  select(wavelength_nm, value, sample)
+
+film_FTIR_SR %>% 
+  ggplot(aes(x = wavelength_nm))
+%>% 
+  pivot_wider(values_from = value, 
+              names_from = sample)
+
+write_csv(film_FTIR_SR, file = "~/Downloads/film_FTIR_SR.csv")
+```
+#material tests
+##data loading
+```{r}
+
+path_mat_UVVis_IS <- "~/Research/harvard/films/material_tests/UVVis"
+path_mat_FTIR_IS <- "~/Research/harvard/films/material_tests/FTIR-IS"
+path_mat_FTIR_SR <- "~/Research/harvard/films/material_tests/FTIR-SR"
+
+
+mat_UVVis_IS <- list.files(path_mat_UVVis_IS, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x) %>% 
+        filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
+        mutate(wavelength_nm = as.numeric(wavelength_nm), 
+               value = as.numeric(value))) %>% 
+  bind_rows() %>% 
+  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance"), 
+         #sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_")
+         )
+
+
+
+
+
+mat_FTIR_IS <- list.files(path_mat_FTIR_IS, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  mutate(sample = meta, 
+         sample_id = film,
+         mode = str_extract(mode, "[:alpha:]"), 
+         mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  select(!c(date, sample, meta)) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         sample_id = film) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               values_to = "value", 
+               names_to = "mode")
+
+
+
+
+mat_FTIR_SR <- list.files(path_mat_FTIR_SR, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  mutate(mode = str_extract(mode, "[:digit:]+"), 
+         sample = meta) %>% 
+  filter(mode == 30) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_"))
+
+
+gruk <- mat_FTIR_IS %>% 
+  select(wavelength_nm, value, sample_id, mode) %>% 
+  mutate(machine = "FTIR") %>% 
+  bind_rows(mat_UVVis_IS %>% 
+              select(wavelength_nm, value, sample_id, mode) %>% 
+              mutate(machine = "UVVis")) %>% 
+  mutate(machine = factor(machine, levels = c("UVVis", "FTIR")))
+
+
+```
+
+##Plotting
+```{r}
+mat_UVVis_IS %>% 
+  filter(sample_id != "KaptonTape") %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Intensity (%)", 
+       color = "Sample", 
+       title = "UV-Vis Integrating Sphere")
+
+ggsave("~/Downloads/mat_test-UVVis-IS.png", units = "in", width = 10, height = 5)
+
+mat_FTIR_IS %>% 
+  filter(value <= 100, 
+         film %in% c("AlTape", "AlFoil"), 
+         mode == "Absorptance") %>% 
+  ggplot(aes(x = wavelength_nm, y = value / 100, color = film)) + 
+  geom_line() + 
+  labs(x = "Wavelength (nm)", 
+       y = "Emissivity", 
+       color = "Sample") +
+  lims(x = c(3000, 15000), y = c(-0.05, 1.05))
+
+ggsave("~/Downloads/mat_test-Al-FTIR-IS.png", units = "in", width = 10, height = 5)
+
+mat_FTIR_SR %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample)) + 
+  geom_line() +
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Reflectance (%)", 
+       color = "Sample", 
+       title = "FTIR Specular Reflection 30\u00b0") 
+
+ggsave("~/Downloads/mat_test-FTIR-SR.png", units = "in", width = 10, height = 5)
+
+gruk %>% 
+  filter(sample_id != "KaptonNoBackTape") %>% 
+  pivot_wider(names_from = c(mode), 
+              values_from = c(value)) %>% 
+  mutate(Absorptance = 100 - Reflectance - Transmittance) %>% 
+  pivot_longer(cols = c(Absorptance, Reflectance, Transmittance), 
+               names_to = "mode", 
+               values_to = "value") %>% 
+  filter(value <= 100, 
+         value >= 0) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  facet_grid(rows = vars(mode), 
+             cols = vars(machine), 
+             scales = "free_x") + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       color = "Sample")
+
+ggsave("~/Downloads/mat_test-full-range.png", units = "in", width = 10, height = 5)
+
+```
+
+
+#plot for 20240724
+```{r}
+blurgh <- read_excel("~/infrared_selective_absorption_may_17_FOR_J_M.xlsx") %>% 
+  clean_names() %>% 
+  mutate(glycerol = 100 * device_w_glycerol, 
+         air = 100 * device_w_air, 
+         .keep = "unused") %>% 
+  pivot_longer(cols = c(glycerol, air), 
+               values_to = "value", 
+               names_to = "dye") %>% 
+  mutate(wack_conc = "Max", 
+         mode = "Transmittance") %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Reflectance = 0, 
+         Absorptance = 100 - Transmittance) %>% 
+  pivot_longer(cols = c(Absorptance, Reflectance, Transmittance), 
+               names_to = "mode", 
+               values_to = "value")
+
+gook <- UVVis_IS_summ %>% 
+  filter(dye == "0086", 
+         solvent == "MinOilandSurf") %>% 
+  mutate(concentration = concentration_value, 
+         value = mean, 
+         wack_conc = case_when(concentration == 4 ~ "Max", 
+                               concentration == 2 ~ "Half Max",
+                               concentration == 1 ~ "Quarter Max",
+                               concentration == 0.5 ~ "Eighth Max", 
+                               concentration == 0 ~ "Zero", 
+                               .default = NA)) %>% 
+  select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc) %>% 
+  bind_rows(fluid_IS_with_metadata %>% 
+              filter(dye == "R960", 
+                     solvent == "MinOilandSurf", 
+                     (mode == "Absorptance" & method == "Center0" & concentration != 0) |
+                       (mode == "Reflectance" & method == "Center0" & concentration != 0) | 
+                       (mode == "Reflectance" & method == "standard" & concentration == 0) |
+                       (mode == "Absorptance" & method == "standard" & concentration == 0) |
+                       mode == "Transmittance") %>% 
+              mutate(wack_conc = case_when(concentration == 256 ~ "Max", 
+                                           concentration == 128 ~ "Half Max",
+                                           concentration == 64 ~ "Quarter Max",
+                                           concentration == 32 ~ "Eighth Max", 
+                                           concentration == 0 ~ "Zero", 
+                                           .default = )) %>% 
+              select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc)) %>% 
+  bind_rows(blurgh) %>% 
+  mutate(wack_conc_ordered = factor(wack_conc, 
+                                    levels = c("Max", "Half Max", "Quarter Max", "Eighth Max", "Zero")), 
+         dye = case_when(dye == "0086" ~ "Block Visible Transmit NIR", 
+                         dye == "R960" ~ "Block Visible Block NIR", 
+                         dye == "glycerol" ~ "Transmit Visible Block NIR", 
+                         dye == "air" ~ "Transmit Visible Transmit NIR"))
+
+gook %>% 
+  drop_na(wack_conc_ordered) %>% 
+  filter(wack_conc_ordered == "Max") %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = concentration)) + 
+  geom_line() + 
+  scale_color_viridis_d(option = "magma", end = 0.7) +
+  facet_grid(rows = vars(mode), 
+             cols = vars(dye), 
+             switch = "y") + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)",
+       color = "Relative Concentration")
+
+ggsave("~/Downloads/fluid-comparison.png", units = "in", width = 10, height = 6)
+
+```

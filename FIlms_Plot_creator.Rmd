@@ -23,53 +23,44 @@ source(here("FTIR_reader.R"))
 
 #data locations
 ```{r}
-film_UVVis_IS_path = "~/Research/harvard/films/UVVis_IS/"
+film_UVVis_IS_path = "~/Research/harvard/films/UVVis_IS"
 film_UVVis_UMA_path = "~/Research/harvard/films/UVVis_UMA/"
-film_FTIR_path = "~/Research/harvard/films/FTIR/"
+film_FTIR_IS_path = "~/Research/harvard/films/FTIR_IS/"
+film_FTIR_UMA_path = "~/Research/harvard/films/FTIR_UMA/"
 ```
 
-#film UV-Vis IS
+#film IS
 ```{r}
-film_UVVis_IS_T <- read_uv_vis_is_film("~/Research/harvard/films/UVVis_IS/20240707/ITO_150W_60m_IS_T.csv") %>% 
-  drop_na(value)
-film_UVVis_IS_R <- read_uv_vis_is_film("~/Research/harvard/films/UVVis_IS/20240707/ITO_150W_60m_IS_R.csv") %>% 
-  drop_na(value)
+film_UVVis_IS_R <- list.files(film_UVVis_IS_path, recursive = T, full.names = T, pattern = ".csv") %>% 
+  map(.f = \(x) read_uv_vis_is_film(x)) %>% 
+  list_rbind() %>% 
+  mutate(mode = str_extract(mode, "[^.csv]+"))
 
-film_UVVIs_IS <- bind_rows(film_UVVis_IS_T, film_UVVis_IS_R) %>% 
-  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
-                          mode == "R" ~ "Reflectance")) %>% 
-  pivot_wider(id_cols = c(wavelength_nm, film, power, time), names_from = mode, values_from = value) %>% 
-  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
-  pivot_longer(cols = c(Transmittance, Reflectance, Absorptance), names_to = "mode", values_to = "value")
+film_FTIR_IS_R <- list.files(film_FTIR_IS_path, recursive = T, full.names = T, pattern = ".CSV") %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  list_rbind() %>% 
+  mutate(mode = str_extract(mode, "[^.CSV]+"))
 
-
-film_FTIR_IS_T <- read_FTIR_IS_film("~/Research/harvard/films/FTIR_IS/20240706/ITO_150W_60m_IS_T.csv") 
-film_FTIR_IS_R <- read_FTIR_IS_film("~/Research/harvard/films/FTIR_IS/20240706/ITO_150W_60m_IS_R.csv") 
-
-film_FTIR_IS <- bind_rows(film_FTIR_IS_T, film_FTIR_IS_R) %>% 
-  mutate(mode = case_when(mode == "T.csv" ~ "Transmittance", 
-                          mode == "R.csv" ~ "Reflectance")) %>% 
-  pivot_wider(id_cols = c(wavelength_nm, film, power, time), names_from = mode, values_from = value) %>% 
-  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
-  pivot_longer(cols = c(Transmittance, Reflectance, Absorptance), names_to = "mode", values_to = "value")
-
-film_IS <- bind_rows(film_UVVIs_IS, film_FTIR_IS) %>% 
+film_IS_R <- bind_rows(film_UVVis_IS_R, film_FTIR_IS_R) %>% 
+  mutate(thickness = as.numeric(case_when(thickness == "" ~ NA,
+                                          thickness == "-" ~ NA, 
+                                          .default = str_extract(thickness, "[:digit:]+")))) %>% 
+  filter(mode == "R") %>% 
   mutate(region = factor(case_when(wavelength_nm > 121 & wavelength_nm <= 400 ~ "NUV", 
                             wavelength_nm > 400 & wavelength_nm <= 750 ~ "Visible", 
                             wavelength_nm > 750 & wavelength_nm <= 2500 ~ "NIR", 
                             wavelength_nm > 2500 & wavelength_nm <= 10000 ~ "MIR", 
-                            wavelength_nm > 10000 & wavelength_nm <= 1000000 ~ "FIR"), 
-                         levels = c("NUV", "Visible", "NIR", "MIR", "FIR"))) 
+                            wavelength_nm > 10000 & wavelength_nm <= 1000000 ~ "FIR", 
+                            .default = "unknown"), 
+                         levels = c("NUV", "Visible", "NIR", "MIR", "FIR", "unknown"))) 
 ```
 
 ```{r}
-film_IS %>% 
+film_IS_R %>% 
   filter(region %in% c("Visible", "NIR", "MIR")) %>% 
-  ggplot(aes(x = wavelength_nm, y = value)) + 
+  ggplot(aes(x = wavelength_nm, y = value, group = thickness, color = thickness)) + 
   geom_line() + 
-  facet_grid(rows = vars(mode), 
-             cols = vars(region), 
-             scales = "free_x")
+  facet_wrap(facets = vars(region), scales = "free_x")
 ```
 
 #SR

@@ -1,0 +1,226 @@
+---
+title: "New data plotter"
+output: pdf_document
+date: "2024-07-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Package loading and source
+```{r}
+library(tidyverse)
+library(googlesheets4)
+library(here)
+
+source(here("read_uv_vis_is_fluids.R"))
+```
+
+#Fluids
+##Add Data
+```{r}
+fluid_IS <- list.files("~/Research/harvard/fluids/unprocessed_data", 
+           recursive = T, 
+           full.names = T, 
+           pattern = ".csv") %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x)) %>% 
+  list_rbind() %>% 
+  drop_na(wavelength_nm) %>% 
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance_standard", 
+                          mode == "R" ~ "perc_Reflectance_standard", 
+                          mode == "C-0" ~ "perc__Center0",
+                          mode == "C-5" ~ "perc__Center5",
+                          mode == "C-10" ~ "perc__Center10",
+                          mode == "C-15" ~ "perc__Center15", 
+                          mode == "C-45" ~ "perc__Center45"))
+
+write_csv(fluid_IS, file = "~/Research/harvard/fluids/fluid_IS.cvs")
+```
+
+##Read Data
+```{r}
+fluid_metadata <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=0#gid=0")
+fluid_IS <- read_csv("~/Research/harvard/fluids/fluid_IS.cvs")
+```
+##Complete Data
+```{r}
+fluid_IS_with_metadata <- fluid_IS %>% 
+  select(!date) %>% 
+  pivot_wider(names_from = c(mode), 
+              values_from = c(value)) %>% 
+  mutate(perc_Absorptance_standard = 100 - perc_Transmittance_standard - perc_Reflectance_standard, 
+         perc_Absorptance_center0 = 100 - perc__Center0,
+         perc_Absorptance_center5 = 100 - perc__Center5,
+         perc_Absorptance_center10 = 100 - perc__Center10,
+         perc_Absorptance_center15 = 100 - perc__Center15, 
+         perc_Absorptance_center45 = 100 - perc__Center45, 
+         perc_Reflectance_center0 = perc__Center0 - perc_Transmittance_standard
+         ) %>% 
+  pivot_longer(cols = starts_with(c("perc_")),
+               names_to = c(NA, "mode", "method"), 
+               names_sep = "_") %>% 
+  left_join(fluid_metadata, by = c("sample_id"))
+
+dye_help_naught <- fluid_IS_with_metadata %>% 
+  filter(dye == "Baseline")
+  
+dye_help_real <- fluid_IS_with_metadata %>% 
+  filter(dye != "Baseline")
+  
+dye_help_2 <- dye_help_real %>% count(dye, particle_size_um)
+  
+dye2 <- data.frame()
+  
+for(i in 1:nrow(dye_help_2)){
+  dye_help_4 <- dye_help_naught %>% 
+    mutate(dye = dye_help_2$dye[i], 
+           particle_size_um = dye_help_2$particle_size_um[i])
+  
+  dye2 <- dye2 %>% rbind(dye_help_4)
+}
+
+fluid_IS_with_metadata <- bind_rows(dye_help_real, dye2)
+
+```
+
+##Plotting
+```{r}
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf",
+         mode %in% c("Reflectance", "Transmittance"), 
+         method == "standard") %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_line(aes(y = value, color = concentration, linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_grid(rows = vars(mode), 
+             cols = vars(dye))
+
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf", 
+         mode %in% c("")) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_line(aes(y = value, color = concentration, linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
+  labs(y = "Percent Absorption (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_wrap(facets = vars(method), ncol = 3)
+
+ggsave("~/Downloads/White-Dyes-continuous.png", units = "in", width = 12, height = 6)
+
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf", 
+         mode %in% c("Reflectance"), 
+         concentration == 256) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye, method))) + 
+  geom_line(aes(y = value, color = method)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = "Method of Measurement")
+
+ggsave("~/Downloads/R960-256mgml-measurement-methods.png", units = "in", width = 8, height = 6)
+
+```
+
+#Films
+##Add data
+```{r}
+path_film_UVVis_IS <- "~/Research/harvard/films/UVVis_IS"
+path_film_FTIR_IS <- "~/Research/harvard/films/FTIR_IS"
+path_film_FTIR_SR <- "~/Research/harvard/films/FTIR_SR"
+
+
+film_UVVis_IS <- list.files(path_film_UVVis_IS, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_film(x) %>% 
+        filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
+        mutate(wavelength_nm = as.numeric(wavelength_nm), 
+               value = as.numeric(value))) %>% 
+  bind_rows() %>% 
+  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance"), 
+         sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_"))
+
+
+
+
+
+film_FTIR_IS <- list.files(path_film_FTIR_IS, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  select(!c(date, meta)) %>% 
+  filter(mode != "T") %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_")) 
+
+
+
+
+film_FTIR_SR <- list.files(path_film_FTIR_SR, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  filter(mode == 30) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         sample_id = str_c(film, power, time, thickness, measurement_num, sep = "_"))
+
+
+```
+
+##Plotting
+```{r}
+film_UVVis_IS %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Intensity (%)", 
+       color = "Sample", 
+       title = "UV-Vis Integrating Sphere")
+
+ggsave("~/Downloads/film-UVVis-IS.png", units = "in", width = 10, height = 5)
+
+film_FTIR_IS %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Reflectance (%)", 
+       color = "Sample", 
+       title = "FTIR Integrating Sphere")
+
+ggsave("~/Downloads/film-FTIR-IS.png", units = "in", width = 10, height = 5)
+
+film_FTIR_SR %>% 
+  ggplot(aes(x = wavelength_nm, y = value, color = sample_id)) + 
+  geom_line() + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Reflectance (%)", 
+       color = "Sample", 
+       title = "FTIR Specular Reflection 30\u00b0")
+
+ggsave("~/Downloads/film-FTIR-SR.png", units = "in", width = 10, height = 5)
+```
