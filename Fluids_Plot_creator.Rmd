@@ -16,6 +16,7 @@ library(here)
 library(viridis)
 library(readxl)
 library(plotly)
+library(googlesheets4)
 
 source(here("UV_Vis_reader.R"))
 source(here("FTIR_reader.R"))
@@ -102,6 +103,7 @@ gook <- UVVis_IS_individual %>%
 
 write_csv(gook, 
           "~/Downloads/Perylene-black-data-col-optimized.csv")
+
 ```
 
 ##UV-Vis plotting
@@ -175,8 +177,8 @@ UVVis_IS_summ %>%
   geom_ribbon(aes(ymax = max, ymin = min, fill = concentration_value), alpha = 0.5) + 
   geom_line(aes(y = mean, color = concentration_value)) + 
   scale_y_continuous(limits = c(-5, 105)) + 
-  scale_color_viridis_d(option = "plasma", transform = "log2") +
-  scale_fill_viridis_d(option = "plasma", transform = "log2") +
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
   labs(y = "Percent of Total Intensity (%)", 
        x = "Wavelength (nm)",
        color = "Concentration (mg/mL)", 
@@ -185,6 +187,92 @@ UVVis_IS_summ %>%
              cols = vars(dye))
 
 ggsave("~/Downloads/R960-solvent-comparison.png", units = "in", width = 7, height = 4)
+
+UVVis_IS_summ %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm <= 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
+         ) %>% 
+  filter(attachment == "IS", 
+         dye == "0086", 
+         solvent == "MinOilandSurf", 
+         concentration_value != 0.5, 
+         mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR")) %>% 
+  drop_na(mean, concentration) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_line(aes(y = mean, group = concentration, color = concentration_value)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2", end = 0.9) + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) +
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Concentration of \nDye (mg/mL)") + 
+  coord_cartesian(y = c(-5, 105), 
+                  expand = F) + 
+  facet_grid(cols = vars(light_range), 
+             scale = "free_x") + 
+  guides(color = guide_colorbar(reverse = T))
+
+ggsave("~/Research/harvard/Figures/Perylene-Black.png", units = "in", width = 5, height = 3.5)
+  
+
+
+UVVis_IS_summ %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm <= 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance")), 
+         solvent  = case_when(solvent == "IPA" ~ "Isopropanol", 
+                              solvent == "MinOil" ~ "Mineral Oil", 
+                              solvent == "MinOilandSurf" ~ "Mineral Oil and Surfactant")
+         ) %>% 
+  filter(dye == "0086", 
+         mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR"), 
+         solvent != "IPAandSurf", 
+         concentration_value == 1 | concentration_value == 0) %>% 
+  drop_na(mean, concentration) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_line(aes(y = mean, group = interaction(solvent, concentration), color = as.factor(concentration_value), linetype = solvent)) + 
+  scale_color_viridis_d(option = "plasma", end = 0.6) + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) +
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Concentration of /nDye (mg/mL)", 
+       linetype = "Solvent") + 
+  coord_cartesian(y = c(-5, 105), 
+                  expand = F) + 
+  facet_grid( cols= vars(light_range), 
+             scale = "free_x") 
+
+ggsave("~/Research/harvard/Figures/perylene-black_solvent_tests.png", units = "in", width = 7, height = 5)
 ```
 #UV-Vis UMA data working
 ```{R, show_col_types = F}
@@ -269,8 +357,7 @@ FTIR_individual <- list.files(path = FTIR_path,
                               recursive = T, 
                               full.names = T) %>% 
   map(.f = \(x) read_FTIR_IS_fluid(x)) %>% 
-  list_rbind() %>% 
-  filter(value <= 100)
+  list_rbind()
 
 FTIR_summ <- FTIR_individual %>% 
   summarise(mean = mean(value), 
@@ -303,6 +390,8 @@ FTIR_summ %>%
   filter(mode == "absorbance") %>% 
   ggplot(aes(x = wavelength_nm, y = mean, color = concentration, linetype = solvent)) + 
   geom_line()
+
+
 ```
 
 #double slit cassettes

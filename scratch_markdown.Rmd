@@ -360,7 +360,8 @@ blurgh <- read_excel("~/infrared_selective_absorption_may_17_FOR_J_M.xlsx") %>%
   pivot_wider(values_from = value, 
               names_from = mode) %>% 
   mutate(Reflectance = 0, 
-         Absorptance = 100 - Transmittance) %>% 
+         Absorptance = 100 - Transmittance, 
+         solvent = dye) %>% 
   pivot_longer(cols = c(Absorptance, Reflectance, Transmittance), 
                names_to = "mode", 
                values_to = "value")
@@ -390,7 +391,7 @@ gook <- UVVis_IS_summ %>%
                                            concentration == 64 ~ "Quarter Max",
                                            concentration == 32 ~ "Eighth Max", 
                                            concentration == 0 ~ "Zero", 
-                                           .default = )) %>% 
+                                           .default = NA)) %>% 
               select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc)) %>% 
   bind_rows(blurgh) %>% 
   mutate(wack_conc_ordered = factor(wack_conc, 
@@ -444,4 +445,517 @@ guuk %>%
   scale_color_viridis_c(option = "plasma", transform = "log2")
 
 ggsave("~/Downloads/method-comparison-R960.png", units = "in", height = 6, width = 8)
+```
+
+
+```{r}
+gook <- read_uv_vis_is_film("~/Downloads/liquid pixels/20240726-UVVis/liquid-pixels-R.csv")
+
+gawk <- list.files("~/Downloads/liquid pixels/20240725-FTIR", full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  list_rbind()
+
+
+goke <- gook %>% 
+  bind_rows(gawk) %>% 
+  select(wavelength_nm, value, film) %>% 
+  pivot_wider(names_from = film, 
+              values_from = value)
+  
+  
+  ggplot(aes(x = wavelength_nm, y = value, group = film, color = film)) + 
+  geom_line() + 
+  lims(y = c(-5, 105))
+
+```
+
+
+#ideal plots
+```{r}
+ideal_reflector <- read_sheet("https://docs.google.com/spreadsheets/d/1Zz9lU67Rk0ShBO7tUARCh7-gwqHQ4h3OnCGT7vZK8M0/edit?gid=0#gid=0", sheet = "Ideal_reflector") %>% 
+  mutate(light_range = factor(light_range, 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
+         )
+
+ideal_reflector %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_area(aes(y = ideal_value), fill = "pink", alpha = 1) + 
+  #geom_line(aes(y = ideal_value), color = "black", linewidth = 1.5) +
+  facet_grid(cols = vars(light_range), 
+             rows = vars(mode),
+             scales = "free_x", 
+             switch = "y") + 
+  coord_cartesian(expand = F, 
+                  ylim = c(-5, 105)) + 
+  theme(strip.placement = "outside") + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)")+ 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 4000, 8000, 12000))
+
+ggsave("~/Research/harvard/Figures/Ideal_Reflector.png", units = "in", width = 8, height = 6)
+
+ideal_fluids <- read_sheet("https://docs.google.com/spreadsheets/d/1Zz9lU67Rk0ShBO7tUARCh7-gwqHQ4h3OnCGT7vZK8M0/edit?gid=0#gid=0", sheet = "Ideal_fluids") %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                          wavelength_nm < 400 ~ "UV", 
+                                        wavelength_nm >= 400 & 
+                                          wavelength_nm < 750 ~ "Visible",
+                                        wavelength_nm >= 750 & 
+                                          wavelength_nm <= 2500 ~ "NIR", 
+                                        wavelength_nm >= 2500 & 
+                                          wavelength_nm < 100000 ~ "M/FIR", 
+                                        wavelength_nm >= 10000 & 
+                                          wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "M/FIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
+         )
+library(ggh4x)
+
+design <- "AAAABBBB#CCCCDDDD#EEEEFFFF#GGGGHHHH"
+
+ideal_fluids %>% 
+  ggplot(aes(x = wavelength_nm, y = ideal_value)) + 
+  geom_area(fill = "pink") +
+  facet_manual(~ situation + light_range, 
+             scales = "free_x", 
+             #switch = "y", 
+             design = design, 
+             strip = strip_split(c("top", "top"))) + 
+  coord_cartesian(expand = F, ylim = c(-5, 105)) + 
+  theme(strip.placement = "outside", 
+        plot.title.position = "plot", 
+        plot.title = element_text(size = 12)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)") + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500))
+
+ggsave("~/Research/harvard/Figures/Ideal_Fluids.png", units = "in", width = 8, height = 3)
+
+ideal_fluids %>% 
+  bind_rows(gook %>% mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                          wavelength_nm < 400 ~ "UV", 
+                                        wavelength_nm >= 400 & 
+                                          wavelength_nm < 750 ~ "Visible",
+                                        wavelength_nm >= 750 & 
+                                          wavelength_nm <= 2500 ~ "NIR", 
+                                        wavelength_nm >= 2500 & 
+                                          wavelength_nm < 100000 ~ "M/FIR", 
+                                        wavelength_nm >= 10000 & 
+                                          wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "M/FIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance")), 
+         situation = case_when(dye == "Block Visible Transmit NIR" ~ 3, 
+                               dye == "Block Visible Block NIR" ~ 4, 
+                               dye == "Transmit Visible Block NIR" ~ 2, 
+                               dye == "Transmit Visible Transmit NIR" ~ 1), 
+         state = "real"
+         ) %>% 
+           filter((wack_conc == "Max" & situation != 3) | (wack_conc == "Half Max" & situation == 3))) %>% 
+  filter(mode == "Transmittance") %>% 
+  mutate(ideal = case_when(state == "ideal" ~ T, 
+                           .default = F), 
+         real = !ideal) %>% 
+  #filter(dye %in% c("glycerol", "air")) %>% 
+  mutate(real = case_when(situation %in% c(1, 2) ~ T, 
+                          .default = F)) %>% 
+ggplot(aes(x = wavelength_nm)) + 
+  geom_area(aes(y = ideal_value, alpha = ideal, group = ideal, position = "identity"), fill = "pink") +
+  geom_line(aes(y = value, alpha = real, group = real)) +
+  facet_manual(~ situation + light_range, 
+             scales = "free_x", 
+             #switch = "y", 
+             design = design, 
+             strip = strip_split(c("top", "top"))) + 
+  coord_cartesian(expand = F, ylim = c(-5, 105)) + 
+  theme(strip.placement = "outside", 
+        plot.title.position = "plot", 
+        plot.title = element_text(size = 12)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)") + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) + 
+  scale_alpha_manual(values = c(0,1), guide = "none") +
+  guides(color = F, 
+        fill = F)
+
+ggsave(filename = "~/Research/harvard/Figures/IdealandReal_Fluids-2.png", units = "in", width = 8, height = 3)
+
+
+
+
+ideal_fluids %>% 
+  bind_rows(gook %>% mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                          wavelength_nm < 400 ~ "UV", 
+                                        wavelength_nm >= 400 & 
+                                          wavelength_nm < 750 ~ "Visible",
+                                        wavelength_nm >= 750 & 
+                                          wavelength_nm < 2500 ~ "NIR", 
+                                        wavelength_nm >= 2500 & 
+                                          wavelength_nm < 16000 ~ "MIR", 
+                                        wavelength_nm >= 10000 & 
+                                          wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance")), 
+         situation = case_when(dye == "Block Visible Transmit NIR" ~ 3, 
+                               dye == "Block Visible Block NIR" ~ 4, 
+                               dye == "Transmit Visible Block NIR" ~ 2, 
+                               dye == "Transmit Visible Transmit NIR" ~ 1), 
+         state = "real"
+         ) %>% 
+           mutate(concentration_ranged = concentration / max(concentration), .by = dye)) %>% 
+  mutate(ideal = case_when(state == "ideal" ~ T, 
+                           .default = F), 
+         real = !ideal) %>% 
+ggplot(aes(x = wavelength_nm)) + 
+  geom_area(aes(y = ideal_value, alpha = ideal, group = ideal, position = "identity"), fill = "pink") +
+  geom_line(aes(y = value, alpha = real, group = interaction(real, concentration), color = concentration_ranged)) +
+  facet_manual(mode ~ situation + light_range, 
+             scales = "free_x", 
+             #switch = "y", 
+             design = design, 
+             strip = strip_split(c("left", "top"))) + 
+  coord_cartesian(expand = F, ylim = c(-5, 105)) + 
+  theme(strip.placement = "outside", 
+        plot.title.position = "plot", 
+        plot.title = element_text(size = 12)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)") + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) + 
+  scale_alpha_manual(values = c(0,1), guide = "none") +
+  scale_color_continuous(transform = "log2")
+  guides(fill = F)
+  
+
+  
+ideal_reflector %>% 
+    bind_rows(film_full_IS %>% mutate(state = film)) %>% 
+  bind_rows(bragg_full_IS %>% mutate(state = film)) %>% 
+    filter(state %in% c("Ideal", "ITO008", "DMDMD001", "DMD009", "Bragg-12-layer"), 
+           light_range %in% c("Visible", "NIR", "MIR")) %>% 
+    mutate(ideal = case_when(state == "ideal" ~ T, 
+                             .default = F), 
+           real = !ideal) %>% 
+    ggplot(aes(x = wavelength_nm)) +
+  geom_area(aes(y = ideal_value, group = ideal), fill = "pink") + 
+    geom_step(aes(y = ideal_value, group = ideal), color = "black", linewidth = 1.5) +
+    geom_line(aes(y = value, group = state, color = str_extract(film, "[:alpha:]+"))) +
+    facet_grid(cols = vars(light_range),
+               rows = vars(mode),
+             scales = "free_x", 
+             switch = "y") + 
+    coord_cartesian(expand = F, 
+                    ylim = c(-5, 105)) + 
+    theme(strip.placement = "outside") + 
+    labs(x = "Wavelength (nm)", 
+         y = "% Transmittance (%)", 
+         color = "Technology") + 
+  scale_color_discrete(na.translate = F)
+
+ggsave("~/Research/harvard/Figures/ideal_and_real_reflectors.png", units = "in", width = 9, height = 7)
+    
+```
+#cube slice
+```{r}
+UVVis_IS_summ %>% 
+  mutate(concentration = concentration_value, 
+         value = mean, 
+         wack_conc = case_when(concentration == 4 ~ "Max", 
+                               concentration == 2 ~ "Half Max",
+                               concentration == 1 ~ "Quarter Max",
+                               concentration == 0.5 ~ "Eighth Max", 
+                               concentration == 0 ~ "Zero", 
+                               .default = NA)) %>% 
+  select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc) %>% 
+  bind_rows(fluid_IS_with_metadata %>% 
+              filter((mode == "Absorptance" & method == "Center0" & concentration != 0) |
+                       (mode == "Reflectance" & method == "Center0" & concentration != 0) | 
+                       (mode == "Reflectance" & method == "standard" & concentration == 0) |
+                       (mode == "Absorptance" & method == "standard" & concentration == 0) |
+                       mode == "Transmittance") %>% 
+              mutate(wack_conc = case_when(concentration == 256 ~ "Max", 
+                                           concentration == 128 ~ "Half Max",
+                                           concentration == 64 ~ "Quarter Max",
+                                           concentration == 32 ~ "Eighth Max", 
+                                           concentration == 0 ~ "Zero", 
+                                           .default = NA)) %>% 
+              select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc)) %>% 
+  bind_rows(blurgh) %>% 
+  mutate(wack_conc_ordered = factor(wack_conc, 
+                                    levels = c("Max", "Half Max", "Quarter Max", "Eighth Max", "Zero"))) %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                          wavelength_nm < 400 ~ "UV", 
+                                        wavelength_nm >= 400 & 
+                                          wavelength_nm < 750 ~ "Visible",
+                                        wavelength_nm >= 750 & 
+                                          wavelength_nm < 2500 ~ "NIR", 
+                                        wavelength_nm >= 2500 & 
+                                          wavelength_nm < 100000 ~ "M/FIR", 
+                                        wavelength_nm >= 10000 & 
+                                          wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "M/FIR", 
+                                         "FIR")
+                              )) %>% 
+  summarise(value = mean(value), 
+            .by = c(solvent, dye, light_range, concentration, dye, mode)) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR"), 
+         solvent %in% c("glycerol", "MinOilandSurf")) %>% 
+  mutate(poly_value = case_when(dye == "glycerol" ~ value, 
+                                dye == "0086" ~ value, 
+                                (dye == "R960" & concentration == 256) ~ value, 
+                                .default = NA)) %>% 
+  pivot_wider(values_from = c(value, poly_value), 
+              names_from = light_range) %>% 
+  mutate(concentration = case_when(solvent %in% c("glycerol", "air") ~ 1, 
+                       .default = concentration)) %>% 
+  ggplot() + 
+  geom_polygon(aes(x = poly_value_NIR, 
+                   y = poly_value_Visible, 
+                   group = is.na(poly_value_NIR)), 
+               color = "black", 
+               alpha = 0.5) + 
+  geom_point(aes(x = value_NIR, 
+                 y = value_Visible, 
+                 color = interaction(solvent, dye, concentration))) + 
+  coord_cartesian(x = c(0, 100), 
+                  y = c(0, 100), 
+                  expand = F) + 
+  scale_x_continuous(labels = c("low \u03c4", "", "", "", "high \u03c4")) + 
+  scale_y_continuous(labels = c("low \u03c4", "", "", "", "high \u03c4")) + 
+  theme(axis.text.x = element_text(hjust = 1), 
+        axis.text = element_text(size = 11)) + 
+  labs(x = "Near-infrared", 
+       y = "Visible") + 
+  guides(color = F)
+
+ggsave("~/Research/harvard/Figures/cube_slice.png", units = "in", width = 3.3, height = 3)
+
+
+UVVis_IS_summ %>% 
+  mutate(concentration = concentration_value, 
+         value = mean, 
+         wack_conc = case_when(concentration == 4 ~ "Max", 
+                               concentration == 2 ~ "Half Max",
+                               concentration == 1 ~ "Quarter Max",
+                               concentration == 0.5 ~ "Eighth Max", 
+                               concentration == 0 ~ "Zero", 
+                               .default = NA)) %>% 
+  select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc) %>% 
+  bind_rows(fluid_IS_with_metadata %>% 
+              filter((mode == "Absorptance" & method == "Center0" & concentration != 0) |
+                       (mode == "Reflectance" & method == "Center0" & concentration != 0) | 
+                       (mode == "Reflectance" & method == "standard" & concentration == 0) |
+                       (mode == "Absorptance" & method == "standard" & concentration == 0) |
+                       mode == "Transmittance") %>% 
+              mutate(wack_conc = case_when(concentration == 256 ~ "Max", 
+                                           concentration == 128 ~ "Half Max",
+                                           concentration == 64 ~ "Quarter Max",
+                                           concentration == 32 ~ "Eighth Max", 
+                                           concentration == 0 ~ "Zero", 
+                                           .default = NA)) %>% 
+              select(wavelength_nm, value, dye, solvent, mode, concentration, wack_conc)) %>% 
+  bind_rows(blurgh) %>% 
+  mutate(wack_conc_ordered = factor(wack_conc, 
+                                    levels = c("Max", "Half Max", "Quarter Max", "Eighth Max", "Zero"))) %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                          wavelength_nm < 400 ~ "UV", 
+                                        wavelength_nm >= 400 & 
+                                          wavelength_nm < 750 ~ "Visible",
+                                        wavelength_nm >= 750 & 
+                                          wavelength_nm < 2500 ~ "NIR", 
+                                        wavelength_nm >= 2500 & 
+                                          wavelength_nm < 100000 ~ "M/FIR", 
+                                        wavelength_nm >= 10000 & 
+                                          wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "M/FIR", 
+                                         "FIR")
+                              )) %>% 
+  summarise(value = mean(value), 
+            .by = c(solvent, dye, light_range, concentration, dye, mode)) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR"), 
+         solvent %in% c("glycerol", "MinOilandSurf")) %>% 
+  mutate(poly_value = case_when(dye == "glycerol" ~ value, 
+                                dye == "0086" ~ value, 
+                                (dye == "R960" & concentration == 256) ~ value, 
+                                .default = NA)) %>% 
+  pivot_wider(values_from = c(value, poly_value), 
+              names_from = light_range) %>% 
+  mutate(concentration = case_when(solvent %in% c("glycerol", "air") ~ 1, 
+                       .default = concentration)) %>% 
+  ggplot() + 
+  geom_polygon(aes(x = poly_value_NIR, 
+                   y = poly_value_Visible, 
+                   group = is.na(poly_value_NIR)), 
+               color = "black", 
+               alpha = 0.5) + 
+  coord_cartesian(x = c(0, 100), 
+                  y = c(0, 100), 
+                  expand = F) + 
+  theme(axis.text = element_blank(), 
+        axis.title = element_blank(), 
+        axis.ticks = element_blank(), 
+        panel.background = element_blank(), 
+        plot.background = element_blank()) 
+  guides(color = F)
+
+ggsave("~/Research/harvard/Figures/cube_slice_mini.png", units = "in", width = 8, height = 5)
+```
+
+#bragg
+```{r}
+path_bragg_UVVis_IS <- "~/Desktop/Bragg-uvvis"
+path_bragg_FTIR_IS <- "~/Desktop/Bragg/IS"
+path_bragg_FTIR_SR <- "~/Desktop/Bragg/SR"
+
+
+bragg_UVVis_IS <- list.files(path_bragg_UVVis_IS, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_film(x) %>% 
+        filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
+        mutate(wavelength_nm = as.numeric(wavelength_nm), 
+               value = as.numeric(value))) %>% 
+  bind_rows() %>% 
+  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  select(wavelength_nm, value, film, mode, measurement_num) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               values_to = "value", 
+               names_to = "mode")
+
+
+bragg_FTIR_IS <- list.files(path_bragg_FTIR_IS, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  select(wavelength_nm, value, film, mode, measurement_num) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               values_to = "value", 
+               names_to = "mode")
+
+
+
+
+bragg_FTIR_SR <- list.files(path_bragg_FTIR_SR, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  filter(mode == 30) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"))
+
+
+bragg_full_IS <- bragg_UVVis_IS %>% 
+  bind_rows(bragg_FTIR_IS %>% 
+              filter(wavelength_nm > 2500)) %>% 
+  bind_rows(film_full_IS %>% 
+              filter(film == "DMD005") %>% 
+              mutate(film = "Bare-glass")) %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm < 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
+         )
+
+
+
+
+bragg_full_IS  %>% 
+  bind_rows(ideal_reflector) %>% 
+  filter(light_range %in% c("Visible", "NIR", "MIR")) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), color = "black", linewidth = 1.5) +
+  geom_line(aes(y = value, group = film, color = film)) + 
+  facet_grid(cols = vars(light_range), 
+             rows = vars(mode), 
+             scales = "free_x", 
+             switch = "y") +
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)" 
+       ) + 
+  theme(legend.position = "bottom", 
+        strip.placement = "outside") + 
+  guides(color = guide_legend(nrow = 2)) + 
+  scale_color_discrete(na.translate = F)
+
+ggsave("~/Research/harvard/Figures/Bragg.png", units = "in", width = 6, height = 6)
+
+```
+
+
+```{r}
+dep_test <- read_sheet("https://docs.google.com/spreadsheets/d/1CIk0CH5LbQOoRGGMN9UwyW9BQYA6cpVn4Elqtackf2g/edit?gid=1266670815#gid=1266670815", sheet = "Sheet3", skip = 1) %>% 
+  select(1:11) %>% 
+  drop_na() %>% 
+  clean_names()
+
+dep_test %>% 
+  pivot_longer(cols = c(n_633_nm, k_633_nm), 
+               values_to = "index", 
+               names_to = "index_type") %>% 
+  mutate(index_type = case_when(index_type == "n_633_nm" ~ "Real", 
+                                .default = "Imaginary")) %>% 
+  filter(str_detect(recipe, "N")) %>% 
+  ggplot(aes(x = o2, y = index, color = index_type)) + 
+  geom_line() + 
+  labs(x = expression(O[2]~Flow~Rate~(sccm)), 
+       y = "Index of Refraction", 
+       color = "") + 
+  theme(legend.position = "bottom")
+
+ggsave("~/Research/harvard/Figures/Rugate_testing.png", units = "in", height = 4, width = 4)
+
 ```

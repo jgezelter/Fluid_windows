@@ -36,10 +36,8 @@ read_FTIR_IS_film <- function(path){
            .keep = "none") %>% 
     separate(meta, 
              into = c("film",
-                      "power", 
-                      "time",
-                      "thickness",
-                      "attachment", 
+                      "machine", 
+                      "attachment",
                       "mode", 
                       "measurement_num"), 
              sep = "_", 

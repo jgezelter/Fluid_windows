@@ -1,0 +1,735 @@
+---
+title: "New data plotter"
+output: pdf_document
+date: "2024-07-17"
+---
+
+#Package loading and source
+```{r}
+library(tidyverse)
+library(janitor)
+library(here)
+library(viridis)
+library(readxl)
+library(plotly)
+library(googlesheets4)
+
+source(here("read_uv_vis_is_fluids.R"))
+source(here("FTIR_reader.R"))
+source(here("UV_Vis_reader.R"))
+```
+
+#Fluids
+##Add Data
+```{r, warning=FALSE, message=FALSE}
+#lowest level that contains all fluid data to be used
+fluid_data_unprocessed <- "~/Research/harvard/fluids/unprocessed_data"
+
+fluid_IS <- list.files(fluid_data_unprocessed, #where to look for data
+                       recursive = T, #whether to go into sub-folders
+                       full.names = T, #using full path if T, just file name if F
+                       pattern = ".csv" #only include files that end with '.csv'\
+                       ) %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x)) %>% #maps a given function onto each item of the list
+  list_rbind() %>% #binds each data frame in a list together to form one data frame
+  drop_na(wavelength_nm) %>% #removes NA values from the column wavelength_nm
+  mutate(mode = case_when(mode == "T" ~ "perc_Transmittance_standard", 
+                          mode == "R" ~ "perc_Reflectance_standard", 
+                          mode == "C-0" ~ "perc__Center0",
+                          mode == "C-5" ~ "perc__Center5",
+                          mode == "C-10" ~ "perc__Center10",
+                          mode == "C-15" ~ "perc__Center15", 
+                          mode == "C-45" ~ "perc__Center45", 
+                          .default = mode)) # changes the mode to be more descriptive
+
+write_csv(fluid_IS, file = "~/Research/harvard/fluids/fluid_IS.cvs") #writes the file in a tidy format, with just the raw data
+
+
+```
+
+##Read Data
+```{r}
+fluid_metadata <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=0#gid=0") #Grabs metadata from the shared editable google sheet
+fluid_IS <- read_csv("~/Research/harvard/fluids/fluid_IS.cvs") #reads the premade data csv, prevents the time intensive reprocessing of data
+```
+##Complete Data
+```{r}
+fluid_IS_with_metadata <- fluid_IS %>% 
+  select(!date) %>% 
+  pivot_wider(names_from = c(mode), 
+              values_from = c(value), 
+              values_fill = NA) %>% 
+  mutate(perc_Absorptance_standard = 100 - perc_Transmittance_standard - perc_Reflectance_standard,
+         perc_Transmittance_Center0 = perc_Transmittance_standard,
+         perc_Transmittance_Center5 = perc_Transmittance_standard,
+         perc_Transmittance_Center10 = perc_Transmittance_standard,
+         perc_Transmittance_Center15 = perc_Transmittance_standard,
+         perc_Transmittance_Center45 = perc_Transmittance_standard,
+         perc_Absorptance_Center0 = 100 - perc__Center0,
+         perc_Absorptance_Center5 = 100 - perc__Center5,
+         perc_Absorptance_Center10 = 100 - perc__Center10,
+         perc_Absorptance_Center15 = 100 - perc__Center15, 
+         perc_Absorptance_Center45 = 100 - perc__Center45, 
+         perc_Reflectance_Center0 = perc__Center0 - perc_Transmittance_Center0, 
+         perc_Reflectance_Center5 = perc__Center5 - perc_Transmittance_Center5,
+         perc_Reflectance_Center10 = perc__Center10 - perc_Transmittance_Center10,
+         perc_Reflectance_Center15 = perc__Center15 - perc_Transmittance_Center15,
+         perc_Reflectance_Center45 = perc__Center45 - perc_Transmittance_Center45
+         ) %>% 
+  pivot_longer(cols = starts_with(c("perc_")),
+               names_to = c(NA, "mode", "method"), 
+               names_sep = "_") %>% 
+  left_join(fluid_metadata, by = c("sample_id"))
+
+dye_help_naught <- fluid_IS_with_metadata %>% 
+  filter(dye == "Baseline")
+  
+dye_help_real <- fluid_IS_with_metadata %>% 
+  filter(dye != "Baseline")
+  
+dye_help_2 <- dye_help_real %>% count(dye, particle_size_um)
+  
+dye2 <- data.frame()
+  
+for(i in 1:nrow(dye_help_2)){
+  dye_help_4 <- dye_help_naught %>% 
+    mutate(dye = dye_help_2$dye[i], 
+           particle_size_um = dye_help_2$particle_size_um[i])
+  
+  dye2 <- dye2 %>% rbind(dye_help_4)
+}
+
+fluid_IS_with_metadata <- bind_rows(dye_help_real, dye2)
+
+```
+
+##Plotting
+```{r}
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf",
+         mode %in% c("Reflectance", "Transmittance"), 
+         method == "standard") %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_line(aes(y = value, color = concentration, linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
+  labs(y = "Percent of Total Intensity (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_grid(rows = vars(mode), 
+             cols = vars(dye))
+
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf", 
+         mode %in% c("Absorptance")) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye))) + 
+  geom_line(aes(y = value, color = concentration, linetype = solvent)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  scale_fill_viridis_c(option = "plasma", transform = "log2") +
+  labs(y = "Percent Absorption (%)", 
+       x = "Wavelength (nm)",
+       color = "Concentration (mg/mL)", 
+       fill = "Concentration (mg/mL)") + 
+  facet_wrap(facets = vars(method), ncol = 3)
+
+ggsave("~/Downloads/White-Dyes-continuous.png", units = "in", width = 12, height = 6)
+
+fluid_IS_with_metadata %>% 
+  filter(sample_id != "fluid025", 
+         dye == "R960", 
+         solvent == "MinOilandSurf", 
+         mode %in% c("Reflectance"), 
+         concentration == 256) %>% 
+  ggplot(aes(x = wavelength_nm, group = interaction(concentration, solvent, dye, method))) + 
+  geom_line(aes(y = value, color = method)) + 
+  scale_y_continuous(limits = c(-5, 105)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = "Method of Measurement")
+
+ggsave("~/Downloads/R960-256mgml-measurement-methods.png", units = "in", width = 8, height = 6)
+
+
+fluid_IS_with_metadata %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf",
+         method %in% c("Center45")) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = concentration, color = concentration)) + 
+  geom_line() + 
+  scale_color_viridis_c(option = "plasma", transform = "log2") +
+  facet_grid(rows = vars(mode)) +
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       title = "Center - Transmission")
+
+ggsave("~/Downloads/R960-256mgml-Center-original.png", units = "in", width = 7, height = 5)
+
+
+fluid_IS_with_metadata %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm <= 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              )) %>% 
+  filter(dye == "R960", 
+         solvent == "MinOilandSurf", 
+         light_range %in% c("Visible", "NIR")) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_line(aes(y = value, group = concentration, color = concentration)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2", end = 0.9) + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) +
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Concentration of \nDye (mg/mL)") + 
+  coord_cartesian(y = c(-5, 105), 
+                  expand = F) + 
+  facet_grid(cols = vars(light_range), 
+             rows = vars(mode),
+             scale = "free_x") + 
+   guides(color = guide_colorbar(reverse = T))
+
+ggsave("~/Research/harvard/Figures/R960.png", units = "in", width = 5, height = 3.5)
+
+design <- "AAAAABBBBB#CCCCCDDDDD#EEEEEFFFFF#GGGGGHHHHH#IIIIIJJJJJ#KKKKKLLLLL"
+
+fluid_IS_with_metadata %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm <= 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              )) %>% 
+  filter(light_range %in% c("Visible", "NIR"), 
+         mode == "Transmittance", 
+         solvent == "MinOilandSurf", 
+         dye != "TiO2", 
+         concentration > 16) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_line(aes(y = value, group = interaction(concentration, dye), color = concentration)) + 
+  scale_color_viridis_c(option = "plasma", transform = "log2", end = 0.9) + 
+  scale_x_continuous(breaks = c(400, 575, 750, 1625, 2500)) +
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Concentration of \nDye (mg/mL)") +
+  facet_manual(~dye + light_range, 
+               scale = "free_x", 
+               design = design) + 
+  guides(color = guide_colorbar(reverse = T)) + 
+  coord_cartesian(y = c(-5, 105), 
+                  expand = F)
+
+ggsave("~/Research/harvard/Figures/white_comparison.png", units = "in", width = 13, height = 7)
+```
+
+#Films
+##Add data
+```{r}
+path_film_UVVis_IS <- "~/Research/harvard/films/UVVis_IS"
+path_film_FTIR_IS <- "~/Research/harvard/films/FTIR_IS"
+path_film_FTIR_SR <- "~/Research/harvard/films/FTIR_SR"
+
+
+film_UVVis_IS <- list.files(path_film_UVVis_IS, 
+                            recursive = T, 
+                            pattern = ".csv", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_uv_vis_is_film(x) %>% 
+        filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
+        mutate(wavelength_nm = as.numeric(wavelength_nm), 
+               value = as.numeric(value))) %>% 
+  bind_rows() %>% 
+  mutate(mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  select(wavelength_nm, value, film, mode, measurement_num) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               values_to = "value", 
+               names_to = "mode")
+
+
+film_FTIR_IS <- list.files(path_film_FTIR_IS, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+         mode = case_when(mode == "T" ~ "Transmittance", 
+                          mode == "R" ~ "Reflectance")) %>% 
+  select(wavelength_nm, value, film, mode, measurement_num) %>% 
+  pivot_wider(values_from = value, 
+              names_from = mode) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
+               values_to = "value", 
+               names_to = "mode")
+
+
+
+
+film_FTIR_SR <- list.files(path_film_FTIR_SR, 
+                            recursive = T, 
+                            pattern = ".CSV", 
+                            full.names = T) %>% 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
+  bind_rows() %>% 
+  filter(mode == 30) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"))
+
+
+film_full_IS <- film_UVVis_IS %>% 
+  bind_rows(film_FTIR_IS %>% 
+              filter(wavelength_nm > 2500)) %>% 
+  mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
+                                   wavelength_nm < 400 ~ "UV", 
+                                 wavelength_nm >= 400 & 
+                                   wavelength_nm < 750 ~ "Visible",
+                                 wavelength_nm >= 750 & 
+                                   wavelength_nm < 2500 ~ "NIR", 
+                                 wavelength_nm >= 2500 & 
+                                   wavelength_nm < 16000 ~ "MIR", 
+                                 wavelength_nm >= 10000 & 
+                                   wavelength_nm < 1000000 ~ "FIR"), 
+                              levels = c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR")
+                              ), 
+         mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
+         )
+
+```
+
+##Plotting
+```{r}
+film_UVVis_IS %>% 
+  drop_na(mode) %>% 
+  ggplot(aes(x = wavelength_nm, 
+             y = value, 
+             group = interaction(measurement_num, film), 
+             color = film)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode)) + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Intensity (%)", 
+       color = "Sample", 
+       title = "UV-Vis Integrating Sphere") + 
+  lims(y = c(-15, 105)) +  
+  scale_color_viridis_d()
+
+ggsave("~/Research/harvard/Figures/film-UVVis-IS.png", units = "in", width = 10, height = 5)
+
+film_FTIR_IS %>% 
+  filter(value <= 115) %>% 
+  ggplot(aes(x = wavelength_nm, 
+             y = value, 
+             group = interaction(measurement_num, film), 
+             color = film)) + 
+  geom_line() + 
+  facet_wrap(facets = vars(mode)) +
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Reflectance (%)", 
+       color = "Sample", 
+       title = "FTIR Integrating Sphere") + 
+  lims(y = c(-5, 105), 
+       x = c(2500, 17000)) + 
+  scale_color_viridis_d()
+
+ggsave("~/Research/harvard/Figures/film-FTIR-IS.png", units = "in", width = 10, height = 5)
+
+film_FTIR_SR %>% 
+  ggplot(aes(x = wavelength_nm, 
+             y = value, 
+             group = interaction(measurement_num, film), 
+             color = film)) + 
+  geom_line() + 
+  labs(x = "Wavelength (nm)", 
+       y = "Percent Reflectance (%)", 
+       color = "Sample", 
+       title = "FTIR Specular Reflection 30\u00b0") +  
+  lims(y = c(-5, 105)) + 
+  scale_color_viridis_d()
+
+ggsave("~/Research/harvard/Figures/film-FTIR-SR.png", units = "in", width = 10, height = 5)
+
+```
+
+###full film data plotting
+```{r}
+DMD_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "DMD")
+
+DMDMD_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "DMDMD")
+
+ITO_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "ITO")
+
+Ideal_reflector <- read_sheet("https://docs.google.com/spreadsheets/d/1Zz9lU67Rk0ShBO7tUARCh7-gwqHQ4h3OnCGT7vZK8M0/edit?gid=0#gid=0", sheet = "Ideal_reflector")
+
+
+film_full_IS %>% 
+  filter(light_range %in% c("Visible", "NIR", "MIR"), 
+         str_detect(film, "DMD"), 
+         wavelength_nm <= 16000, 
+         !film %in% c("DMD005", "DMD006", "DMD011", "DMD012"), 
+         film %in% c("DMD004", "DMD008", "DMD007", "DMD009", "DMDMD001", "DMD015")
+         ) %>% 
+  mutate(sample_id = film, 
+         type = case_when(str_detect(film, "DMDMD") ~ "DMDMD", 
+                          .default = "DMD")) %>% 
+  left_join(DMD_meta %>% bind_rows(DMDMD_meta), by = "sample_id") %>% 
+  mutate(stack = case_when(type == "DMD" ~ str_c(D1_material, M1_material, D2_material, sep = "-"), 
+                           .default = str_c(D1_material, M1_material, D2_material, M2_material, D3_material, sep = "-"))) %>% 
+  bind_rows(ideal_reflector) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), color = "black", linewidth = 1.5) +
+  geom_line(aes(y = value, group = interaction(film, measurement_num), color = stack)) + 
+  facet_nested(cols = vars(light_range), 
+             rows = vars(mode), 
+             scales = "free_x", 
+             switch = "y") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       color = "Material Structure") + 
+  theme(strip.placement = "outside") + 
+  scale_color_discrete(na.translate = F, 
+                     labels = c(expression(MgF[2]-Ag-MgF[2]), 
+                                expression(TiO[2]-Ag-TiO[2]), 
+                                expression(TiO[2]-Ag-TiO2[2]-Ag-TiO[2]), 
+                                expression(WO[3]-Ag-WO[3]), 
+                                expression(ZrO[2]-Ag-ZrO[2])))
+
+
+ggsave("~/Research/harvard/Figures/DMD_cherry-picked.png", units = "in", width = 11, height = 7)
+
+
+
+
+
+film_full_IS %>% 
+  filter(light_range %in% c("Visible", "NIR", "MIR"), 
+         str_detect(film, "ITO"), 
+         wavelength_nm <= 16000) %>% 
+  mutate(sample_id = film) %>% 
+  left_join(ITO_meta, by = "sample_id") %>% 
+  drop_na(thickness_nm) %>% 
+  ggplot(aes(x = wavelength_nm, y = value, group = interaction(film, measurement_num), color = as.factor(thickness_nm))) + 
+  geom_line() + 
+  facet_grid(cols = vars(light_range), 
+             rows = vars(mode), 
+             scales = "free_x", 
+             switch = "y") +
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Intensity (%)", 
+       color = "Film Thickness (nm)") + 
+  theme(strip.placement = "outside", 
+        legend.position = "bottom") + 
+  guides(color = guide_legend(nrow = 2))
+
+ggsave("~/Research/harvard/Figures/ITO.png", units = "in", width = 6, height = 6)
+
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "ITO")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(ITO_meta, by = "sample_id") %>% 
+              filter(!is.na(thickness_nm))) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Reflectance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(thickness_nm) | is.na(film)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = factor(thickness_nm), 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range), 
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = "Thickness (nm)") + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/ITO_reflect_only.png", units = "in", width = 7, height = 7)
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "ITO")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(ITO_meta, by = "sample_id") %>% 
+              filter(!is.na(thickness_nm))) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(thickness_nm) | is.na(film)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = factor(thickness_nm), 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range), 
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Thickness (nm)") + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/ITO_transmit_only.png", units = "in", width = 7, height = 7)
+
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMDMD_meta, by = "sample_id")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Reflectance", 
+         light_range %in% c("Visible", "NIR", "MIR")) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value), 
+            color = "#A51C30") + 
+  facet_grid(cols = vars(light_range), 
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = "Thickness (nm)") + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/DMDMD_reflect_only.png", units = "in", width = 7, height = 7)
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMDMD_meta, by = "sample_id")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR", "MIR")) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value), 
+            color = "#A51C30") + 
+  facet_grid(cols = vars(light_range), 
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Thickness (nm)") + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/DMDMD_transmit_only.png", units = "in", width = 7, height = 7)
+
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMD"), 
+                     !str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMD_meta, by = "sample_id")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "TiO2")) %>%  
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "WO3")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "ZrO2")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "MgF2")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Reflectance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(D1_material)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = as.factor(M1_thickness / D1_thickness_nm), 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range),
+             rows = vars(D1_material),
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = expression(frac("Dielectric Thickness", "Silver Thickness"))) + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/DMD-material-facet_reflect_only.png", units = "in", width = 7, height = 7)
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMD"), 
+                     !str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMD_meta, by = "sample_id")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "TiO2")) %>%  
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "WO3")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "ZrO2")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "MgF2")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(D1_material)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = as.factor(M1_thickness / D1_thickness_nm), 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range),
+             rows = vars(D1_material),
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = expression(frac("Dielectric Thickness", "Silver Thickness"))) + 
+  scale_color_discrete(na.translate = F) 
+
+ggsave("~/Research/harvard/Figures/DMD-material-facet_transmit_only.png", units = "in", width = 7, height = 7)
+
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMD"), 
+                     !str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMD_meta, by = "sample_id")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "TiO2")) %>%  
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "WO3")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "ZrO2")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "MgF2")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Reflectance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(D1_material)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = M1_thickness, 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range),
+             rows = vars(D1_material),
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Reflectance (%)", 
+       color = "Silver Thickness (nm)") + 
+  scale_color_viridis_c(option = "plasma", end = 0.9)
+
+ggsave("~/Research/harvard/Figures/DMD-material-facet-Mthick_reflect_only.png", units = "in", width = 7, height = 7)
+
+Ideal_reflector %>% 
+  bind_rows(film_full_IS %>% 
+              filter(str_detect(film, "DMD"), 
+                     !str_detect(film, "DMDMD")) %>%  
+              mutate(sample_id = film) %>% 
+              left_join(DMD_meta, by = "sample_id")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "TiO2")) %>%  
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "WO3")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "ZrO2")) %>% 
+  bind_rows(Ideal_reflector %>% mutate(D1_material = "MgF2")) %>% 
+  mutate(light_range = factor(light_range, c("UV", 
+                                         "Visible", 
+                                         "NIR", 
+                                         "MIR", 
+                                         "FIR"))) %>% 
+  filter(mode == "Transmittance", 
+         light_range %in% c("Visible", "NIR", "MIR"), 
+         !is.na(D1_material)) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_step(aes(y = ideal_value), 
+            color = "black", 
+            linewidth = 1.5) + 
+  geom_line(aes(y = value, 
+                color = M1_thickness, 
+                group = interaction(film, measurement_num))) + 
+  facet_grid(cols = vars(light_range),
+             rows = vars(D1_material),
+             scales = "free_x") + 
+  coord_cartesian(y = c(-5, 105), expand = F) + 
+  labs(x = "Wavelength (nm)", 
+       y = "% Transmittance (%)", 
+       color = "Silver Thickness (nm)") + 
+  scale_color_viridis_c(option = "plasma", end = 0.9)
+
+ggsave("~/Research/harvard/Figures/DMD-material-facet-Mthick_transmit_only.png", units = "in", width = 7, height = 7)
+
+film_full_IS %>% 
+  filter(wavelength_nm > 8000,
+         wavelength_nm < 16000,
+         mode == "Reflectance") %>% 
+  summarise(value = mean(value), 
+            .by = c(film)) %>% 
+  arrange(desc(value))
+```

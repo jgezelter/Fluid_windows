@@ -2,11 +2,16 @@ read_uv_vis_is_fluid <- function(path){
   data <- read_csv(path, 
                    col_names = T, 
                    skip = 1,
-                   show_col_types = F) %>% 
+                   show_col_types = F, 
+                   name_repair = "unique_quiet") %>% 
     clean_names()
   
   
-  headers <- read_csv(path, col_names = T, show_col_types = F) %>% slice(c(1))
+  headers <- read_csv(path, 
+                      col_names = T, 
+                      show_col_types = F, 
+                      name_repair = "unique_quiet") %>% 
+    slice(c(1))
   
   cols <- ncol(data)
   rows <- nrow(data)
@@ -34,6 +39,8 @@ read_uv_vis_is_fluid <- function(path){
     if(!str_detect(sample, "Baseline")){
       out <- out %>% rbind(data_cur)
     }
+    
+
     
   }
   
