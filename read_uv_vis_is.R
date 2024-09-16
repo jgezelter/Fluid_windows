@@ -1,4 +1,4 @@
-read_uv_vis_is_fluid <- function(path){
+read_uv_vis_is <- function(path){
   #reads the data and makes a dataframe from it, with numbered column headers
   data <- read_csv(path, 
                    col_names = T, 

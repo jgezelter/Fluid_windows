@@ -13,17 +13,19 @@ library(viridis)
 library(readxl)
 library(plotly)
 library(googlesheets4)
+library(ggh4x)
 
-source(here("read_uv_vis_is_fluids.R"))
+figure_path <- str_c(dirname(here()), "/Figures/")
+
+source(here("read_uv_vis_is.R"))
 source(here("FTIR_reader.R"))
-source(here("UV_Vis_reader.R"))
 ```
 
 #Fluids
 ##Add Data
 ```{r, warning=FALSE, message=FALSE}
 #lowest level that contains all fluid data to be used
-fluid_data_unprocessed <- 
+fluid_data_unprocessed <- "~/Research/harvard/fluids/unprocessed_data"
 
 fluid_IS <- list.files(fluid_data_unprocessed, #where to look for data
                        recursive = T, #whether to go into sub-folders
@@ -65,7 +67,7 @@ fluid_IS <- read_csv("~/Research/harvard/fluids/fluid_IS.cvs") #reads the premad
 ##Complete Data
 ```{r}
 fluid_IS_with_metadata <- fluid_IS %>% 
-  select(!date) %>% #removes date because it messes with some grouping
+  select(!c(date, path)) %>% #removes date because it messes with some grouping
   pivot_wider(names_from = c(mode), 
               values_from = c(value), 
               values_fill = NA) %>% #makes the table "wider" by making each mode a new column of data, rather that separate observations with their own line, makes it more like excel fomatting
@@ -149,7 +151,7 @@ fluid_IS_with_metadata %>%
        fill = "Concentration (mg/mL)") + 
   facet_wrap(facets = vars(method), ncol = 3)
 
-ggsave("~/Downloads/White-Dyes-continuous.png", units = "in", width = 12, height = 6)
+ggsave(str_c(figure_path, "White-Dyes-continuous.png"), units = "in", width = 12, height = 6)
 
 fluid_IS_with_metadata %>% 
   filter(sample_id != "fluid025", 
@@ -164,7 +166,7 @@ fluid_IS_with_metadata %>%
        y = "% Reflectance (%)", 
        color = "Method of Measurement")
 
-ggsave("~/Downloads/R960-256mgml-measurement-methods.png", units = "in", width = 8, height = 6)
+ggsave(str_c(figure_path, "R960-256mgml-measurement-methods.png"), units = "in", width = 8, height = 6)
 
 
 fluid_IS_with_metadata %>% 
@@ -179,7 +181,7 @@ fluid_IS_with_metadata %>%
        y = "% Intensity (%)", 
        title = "Center - Transmission")
 
-ggsave("~/Downloads/R960-256mgml-Center-original.png", units = "in", width = 7, height = 5)
+ggsave(str_c(figure_path, "R960-256mgml-Center-original.png"), units = "in", width = 7, height = 5)
 
 
 fluid_IS_with_metadata %>% 
@@ -216,7 +218,7 @@ fluid_IS_with_metadata %>%
              scale = "free_x") + 
    guides(color = guide_colorbar(reverse = T))
 
-ggsave("~/Research/harvard/Figures/R960.png", units = "in", width = 5, height = 3.5)
+ggsave(str_c(figure_path, "R960.png"), units = "in", width = 5, height = 3.5)
 
 design <- "AAAAABBBBB#CCCCCDDDDD#EEEEEFFFFF#GGGGGHHHHH#IIIIIJJJJJ#KKKKKLLLLL"
 
@@ -256,17 +258,16 @@ fluid_IS_with_metadata %>%
   coord_cartesian(y = c(-5, 105), 
                   expand = F)
 
-ggsave("~/Research/harvard/Figures/white_comparison.png", units = "in", width = 13, height = 7)
+ggsave(str_c(figure_path, "white_comparison.png"), units = "in", width = 13, height = 7)
 
 fluid_IS_with_metadata %>% 
   filter(dye == "R960", 
          str_detect(method, "Center"), 
-         mode == "Reflectance", 
+         mode == "Transmittance", 
          concentration == 256) %>% 
   ggplot(aes(x = wavelength_nm)) + 
   geom_line(aes(y = value, group = interaction(method, concentration), color = method)) + 
-  scale_y_continuous(n.breaks = 6) +
-  labs
+  scale_y_continuous(n.breaks = 6) 
 ```
 
 #Films
@@ -281,13 +282,22 @@ film_UVVis_IS <- list.files(path_film_UVVis_IS,
                             recursive = T, 
                             pattern = ".csv", 
                             full.names = T) %>% 
-  map(.f = \(x) read_uv_vis_is_film(x) %>% 
+  map(.f = \(x) read_uv_vis_is_fluid(x) %>% 
         filter(!str_detect(wavelength_nm, "[:alpha:]")) %>% 
         mutate(wavelength_nm = as.numeric(wavelength_nm), 
                value = as.numeric(value))) %>% 
   bind_rows() %>% 
+  mutate(scan_info = str_extract(basename(path), ".+(?=\\.)"),
+         date = basename(dirname(path))) %>% #takes information on date of scan 
+                                             #and method of scanning from the 
+                                             #folder system and filename
+  separate(scan_info, into = c("machine", "attachment", "mode"), sep = "_") %>% 
+  #takes the machine, attachment, and measurement mode from the filename
+  separate(sample_id, into = c("film", "measurement_num"), sep = "_") %>% 
+  drop_na(wavelength_nm) %>% #removes NA values from the column wavelength_nm
   mutate(mode = case_when(mode == "T" ~ "Transmittance", 
-                          mode == "R" ~ "Reflectance")) %>% 
+                          mode == "R" ~ "Reflectance",
+                          .default = mode)) %>% # changes the mode to be more descriptive
   select(wavelength_nm, value, film, mode, measurement_num) %>% 
   pivot_wider(values_from = value, 
               names_from = mode) %>% 
@@ -301,15 +311,26 @@ film_FTIR_IS <- list.files(path_film_FTIR_IS,
                             recursive = T, 
                             pattern = ".CSV", 
                             full.names = T) %>% 
-  map(.f = \(x) read_FTIR_IS_film(x)) %>% 
-  bind_rows() %>% 
-  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), 
+  map(.f = \(x) read_FTIR_IS_film(x)) %>% #reads the files
+  bind_rows() %>% #binds the data from each file together
+  mutate(date = basename(dirname(path)), #the folder in which the data are stored, the folder should be labelled with the date that the data was taken
+         meta = basename(path), #the filename, contains all relevant metadata
+         .keep = "unused") %>%
+  separate(meta, #separates the matadata contained in the filename including which film, uvvis vs. ftir, which measurement attachment, T vs. R vs. angle of incidence, and measurement number
+           into = c("film",
+                    "machine", 
+                    "attachment",
+                    "mode", 
+                    "measurement_num"), 
+           sep = "_", 
+           remove = F) %>% 
+  mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"), #cleans the measurement number to drop the .CSV ending
          mode = case_when(mode == "T" ~ "Transmittance", 
                           mode == "R" ~ "Reflectance")) %>% 
   select(wavelength_nm, value, film, mode, measurement_num) %>% 
   pivot_wider(values_from = value, 
               names_from = mode) %>% 
-  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% 
+  mutate(Absorptance = 100 - Transmittance - Reflectance) %>% #calculates absorptance
   pivot_longer(cols = c(Absorptance, Transmittance, Reflectance), 
                values_to = "value", 
                names_to = "mode")
@@ -323,13 +344,24 @@ film_FTIR_SR <- list.files(path_film_FTIR_SR,
                             full.names = T) %>% 
   map(.f = \(x) read_FTIR_IS_film(x)) %>% 
   bind_rows() %>% 
+  mutate(date = basename(dirname(path)), 
+         meta = basename(path), 
+         .keep = "unused") %>%
+  separate(meta, 
+           into = c("film",
+                    "machine", 
+                    "attachment",
+                    "mode", 
+                    "measurement_num"), 
+           sep = "_", 
+           remove = F) %>%
   filter(mode == 30) %>% 
   mutate(measurement_num = str_extract(measurement_num, "[^.CSV]+"))
 
 
 film_full_IS <- film_UVVis_IS %>% 
   bind_rows(film_FTIR_IS %>% 
-              filter(wavelength_nm > 2500)) %>% 
+              filter(wavelength_nm > 2500)) %>% #binds the film ftir data to the uvvis data, only uses ftir data from above 2500 nm to prevent overlap or potential disagreement
   mutate(light_range = factor(case_when(wavelength_nm >= 10 & 
                                    wavelength_nm < 400 ~ "UV", 
                                  wavelength_nm >= 400 & 
@@ -344,7 +376,7 @@ film_full_IS <- film_UVVis_IS %>%
                                          "Visible", 
                                          "NIR", 
                                          "MIR", 
-                                         "FIR")
+                                         "FIR") #creates an ordered factor for which region of light is being used, the order established in levels takes precedence over alphabetical order, which would otehrwise be used
                               ), 
          mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
          )
@@ -388,7 +420,7 @@ film_UVVis_IS %>%
   lims(y = c(-15, 105)) +  
   scale_color_viridis_d()
 
-ggsave("~/Research/harvard/Figures/film-UVVis-IS.png", units = "in", width = 10, height = 5)
+ggsave(str_c(figure_path, "film-UVVis-IS.png"), units = "in", width = 10, height = 5)
 
 film_FTIR_IS %>% 
   filter(value <= 115) %>% 
@@ -406,7 +438,7 @@ film_FTIR_IS %>%
        x = c(2500, 17000)) + 
   scale_color_viridis_d()
 
-ggsave("~/Research/harvard/Figures/film-FTIR-IS.png", units = "in", width = 10, height = 5)
+ggsave(str_c(figure_path, "film-FTIR-IS.png"), units = "in", width = 10, height = 5)
 
 film_FTIR_SR %>% 
   ggplot(aes(x = wavelength_nm, 
@@ -421,7 +453,7 @@ film_FTIR_SR %>%
   lims(y = c(-5, 105)) + 
   scale_color_viridis_d()
 
-ggsave("~/Research/harvard/Figures/film-FTIR-SR.png", units = "in", width = 10, height = 5)
+ggsave(str_c(figure_path, "film-FTIR-SR.png"), units = "in", width = 10, height = 5)
 
 ```
 
@@ -431,7 +463,7 @@ DMD_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTF
 
 DMDMD_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "DMDMD")
 
-ITO_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "ITO")
+TCO_meta <- read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1064199373#gid=1064199373", sheet = "TCO")
 
 Ideal_reflector <- read_sheet("https://docs.google.com/spreadsheets/d/1Zz9lU67Rk0ShBO7tUARCh7-gwqHQ4h3OnCGT7vZK8M0/edit?gid=0#gid=0", sheet = "Ideal_reflector")
 
@@ -449,7 +481,7 @@ film_full_IS %>%
   left_join(DMD_meta %>% bind_rows(DMDMD_meta), by = "sample_id") %>% 
   mutate(stack = case_when(type == "DMD" ~ str_c(D1_material, M1_material, D2_material, sep = "-"), 
                            .default = str_c(D1_material, M1_material, D2_material, M2_material, D3_material, sep = "-"))) %>% 
-  bind_rows(ideal_reflector) %>% 
+  bind_rows(Ideal_reflector) %>% 
   ggplot(aes(x = wavelength_nm)) + 
   geom_step(aes(y = ideal_value), color = "black", linewidth = 1.5) +
   geom_line(aes(y = value, group = interaction(film, measurement_num), color = stack)) + 
@@ -470,7 +502,7 @@ film_full_IS %>%
                                 expression(ZrO[2]-Ag-ZrO[2])))
 
 
-ggsave("~/Research/harvard/Figures/DMD_cherry-picked.png", units = "in", width = 11, height = 7)
+ggsave(str_c(figure_path, "DMD_cherry-picked.png"), units = "in", width = 11, height = 7)
 
 
 
@@ -481,7 +513,7 @@ film_full_IS %>%
          str_detect(film, "ITO"), 
          wavelength_nm <= 16000) %>% 
   mutate(sample_id = film) %>% 
-  left_join(ITO_meta, by = "sample_id") %>% 
+  left_join(TCO_meta, by = "sample_id") %>% 
   drop_na(thickness_nm) %>% 
   ggplot(aes(x = wavelength_nm, y = value, group = interaction(film, measurement_num), color = as.factor(thickness_nm))) + 
   geom_line() + 
@@ -497,14 +529,14 @@ film_full_IS %>%
         legend.position = "bottom") + 
   guides(color = guide_legend(nrow = 2))
 
-ggsave("~/Research/harvard/Figures/ITO.png", units = "in", width = 6, height = 6)
+ggsave(str_c(figure_path, "ITO.png"), units = "in", width = 6, height = 6)
 
 
 Ideal_reflector %>% 
   bind_rows(film_full_IS %>% 
               filter(str_detect(film, "ITO")) %>%  
               mutate(sample_id = film) %>% 
-              left_join(ITO_meta, by = "sample_id") %>% 
+              left_join(TCO_meta, by = "sample_id") %>% 
               filter(!is.na(thickness_nm))) %>% 
   mutate(light_range = factor(light_range, c("UV", 
                                          "Visible", 
@@ -529,13 +561,13 @@ Ideal_reflector %>%
        color = "Thickness (nm)") + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/ITO_reflect_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "ITO_reflect_only.png"), units = "in", width = 7, height = 7)
 
 Ideal_reflector %>% 
   bind_rows(film_full_IS %>% 
               filter(str_detect(film, "ITO")) %>%  
               mutate(sample_id = film) %>% 
-              left_join(ITO_meta, by = "sample_id") %>% 
+              left_join(TCO_meta, by = "sample_id") %>% 
               filter(!is.na(thickness_nm))) %>% 
   mutate(light_range = factor(light_range, c("UV", 
                                          "Visible", 
@@ -560,7 +592,7 @@ Ideal_reflector %>%
        color = "Thickness (nm)") + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/ITO_transmit_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "ITO_transmit_only.png"), units = "in", width = 7, height = 7)
 
 
 Ideal_reflector %>% 
@@ -589,7 +621,7 @@ Ideal_reflector %>%
        color = "Thickness (nm)") + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/DMDMD_reflect_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMDMD_reflect_only.png"), units = "in", width = 7, height = 7)
 
 Ideal_reflector %>% 
   bind_rows(film_full_IS %>% 
@@ -617,7 +649,7 @@ Ideal_reflector %>%
        color = "Thickness (nm)") + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/DMDMD_transmit_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMDMD_transmit_only.png"), units = "in", width = 7, height = 7)
 
 
 Ideal_reflector %>% 
@@ -654,7 +686,7 @@ Ideal_reflector %>%
        color = expression(frac("Dielectric Thickness", "Silver Thickness"))) + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/DMD-material-facet_reflect_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMD-material-facet_reflect_only.png"), units = "in", width = 7, height = 7)
 
 Ideal_reflector %>% 
   bind_rows(film_full_IS %>% 
@@ -690,7 +722,7 @@ Ideal_reflector %>%
        color = expression(frac("Dielectric Thickness", "Silver Thickness"))) + 
   scale_color_discrete(na.translate = F) 
 
-ggsave("~/Research/harvard/Figures/DMD-material-facet_transmit_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMD-material-facet_transmit_only.png"), units = "in", width = 7, height = 7)
 
 
 Ideal_reflector %>% 
@@ -727,7 +759,7 @@ Ideal_reflector %>%
        color = "Silver Thickness (nm)") + 
   scale_color_viridis_c(option = "plasma", end = 0.9)
 
-ggsave("~/Research/harvard/Figures/DMD-material-facet-Mthick_reflect_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMD-material-facet-Mthick_reflect_only.png"), units = "in", width = 7, height = 7)
 
 Ideal_reflector %>% 
   bind_rows(film_full_IS %>% 
@@ -763,7 +795,7 @@ Ideal_reflector %>%
        color = "Silver Thickness (nm)") + 
   scale_color_viridis_c(option = "plasma", end = 0.9)
 
-ggsave("~/Research/harvard/Figures/DMD-material-facet-Mthick_transmit_only.png", units = "in", width = 7, height = 7)
+ggsave(str_c(figure_path, "DMD-material-facet-Mthick_transmit_only.png"), units = "in", width = 7, height = 7)
 
 film_full_IS %>% 
   filter(wavelength_nm > 8000,
@@ -774,45 +806,3 @@ film_full_IS %>%
   arrange(desc(value))
 ```
 
-
-```{r}
-gruk <- fluid_IS_with_metadata %>% 
-  bind_rows(UVVis_IS_summ %>% 
-              filter(solvent != "double") %>% 
-              mutate(concentration = concentration_value, 
-                     concentration_units = concentration_type, 
-                     value = mean,
-                     method = "standard-old",
-                     dye = case_when(dye == "TiO2-disp" ~ "TiO2_disp",
-                                     .default = dye),
-                     dye = str_extract(dye, ".+(?=-)|.+"),
-                     .keep = "unused") %>% 
-              left_join(read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1574835261#gid=1574835261", sheet = "fluids_old_method")) %>% 
-              select(!c(color, min, max))
-    )
-
-write_csv(gruk, "~/Downloads/all_fluid_IS_data.csv")
-
-write_csv(gruk %>% 
-            select(wavelength_nm, value, sample_id, mode, method) %>% 
-            drop_na(value) %>% 
-            pivot_wider(names_from = c(sample_id, mode, method),
-                        values_from = value,
-                        id_cols = wavelength_nm, 
-                        values_fn = mean), 
-          "~/Downloads/all_fluids_IS_data_excel_version.csv"
-            )
-
-write_csv(gruk %>% 
-            drop_na(value) %>% 
-            select(wavelength_nm, value, solvent, dye, particle_size_um, concentration, concentration_units, mode, method) %>% 
-            pivot_wider(names_from = c(solvent, dye, particle_size_um, concentration, concentration_units, mode, method),
-                        values_from = value,
-                        id_cols = wavelength_nm, 
-                        values_fn = mean), 
-          "~/Downloads/all_fluids_IS_data_excel_no-vlookup_version.csv"
-            )
-
-write_csv(gruk, 
-          "~/Downloads/all_fluids_IS_tidy.csv")
-```

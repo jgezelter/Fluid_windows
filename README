@@ -1,0 +1,13 @@
+Data_Processor.Rmd can act as a one-stop-shop for converting UV-Vis and FTIR data to single all-encompassing files, 
+plotting the resultant data, and publishing the data in new forms
+The file is structured into fluid processing and film processing. 
+Each of these sections is then divided into data addtition, data processing, and plotting
+Data addition just converts new data to more readable formats
+Data processing generally does transformations to the data to get things like absorptance and add in metadata from google sheets
+Plotting plots the data in helpful ways and saves plots to a file just outside of this R project folder
+
+FTIR_reader.R only includes one function, it only acts to grab information from the nicolet is50 IR spectrometer and its accompanying application's .CSV files, it creates files with three columns: the filepath, wavelength in nm, and the relative intensity reading. Filepath will be constant for each file read
+
+read_uv_vis_is.R only includes one function, it works to rearrange the two-row data structure outputted by the Cary 7000 UMS. May work on UMA data and not just IS data, check for
+
+Deprecated contains some old code bases, including an old UV-Vis reading script, please do not use this one. Films_Plot_creator and Fluids_Plot_creator have been superseded by Data_Processor. scratch_markdown includes some scratchwork for figuring out how to best make functions and one-time plots, creating a similar markdown file can be good for debugging or for any inconsistent/intentionally messy work.
