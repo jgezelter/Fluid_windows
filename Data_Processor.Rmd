@@ -23,15 +23,25 @@ source(here("UV_Vis_reader.R"))
 ##Add Data
 ```{r, warning=FALSE, message=FALSE}
 #lowest level that contains all fluid data to be used
-fluid_data_unprocessed <- "~/Research/harvard/fluids/unprocessed_data"
+fluid_data_unprocessed <- 
 
 fluid_IS <- list.files(fluid_data_unprocessed, #where to look for data
                        recursive = T, #whether to go into sub-folders
                        full.names = T, #using full path if T, just file name if F
-                       pattern = ".csv" #only include files that end with '.csv'\
+                       pattern = ".csv" #only include files that end with '.csv'
                        ) %>% 
   map(.f = \(x) read_uv_vis_is_fluid(x)) %>% #maps a given function onto each item of the list
   list_rbind() %>% #binds each data frame in a list together to form one data frame
+  mutate(scan_info = str_extract(basename(path), ".+(?=\\.)"),
+         date = basename(dirname(path))) %>% #takes information on date of scan 
+                                             #and method of scanning from the 
+                                             #folder system and filename
+  separate(scan_info, into = c("machine", "attachment", "mode"), sep = "_") %>% 
+  #takes the machine, attachment, and measurement mode from the filename
+  mutate(mode = case_when(mode == "C" ~ str_c("C-", str_extract(sample_id, "(?<=-)[:digit:]+")), 
+                          .default = mode), #does some extra processing for center measurements for angle of measurement
+         sample_id = case_when(str_detect(sample_id, "-") ~ str_extract(sample_id, ".+(?=-)"), 
+                               .default = sample_id)) %>% #removes angle from sample_id where it was originally stored
   drop_na(wavelength_nm) %>% #removes NA values from the column wavelength_nm
   mutate(mode = case_when(mode == "T" ~ "perc_Transmittance_standard", 
                           mode == "R" ~ "perc_Reflectance_standard", 
@@ -55,10 +65,10 @@ fluid_IS <- read_csv("~/Research/harvard/fluids/fluid_IS.cvs") #reads the premad
 ##Complete Data
 ```{r}
 fluid_IS_with_metadata <- fluid_IS %>% 
-  select(!date) %>% 
+  select(!date) %>% #removes date because it messes with some grouping
   pivot_wider(names_from = c(mode), 
               values_from = c(value), 
-              values_fill = NA) %>% 
+              values_fill = NA) %>% #makes the table "wider" by making each mode a new column of data, rather that separate observations with their own line, makes it more like excel fomatting
   mutate(perc_Absorptance_standard = 100 - perc_Transmittance_standard - perc_Reflectance_standard,
          perc_Transmittance_Center0 = perc_Transmittance_standard,
          perc_Transmittance_Center5 = perc_Transmittance_standard,
@@ -75,21 +85,21 @@ fluid_IS_with_metadata <- fluid_IS %>%
          perc_Reflectance_Center10 = perc__Center10 - perc_Transmittance_Center10,
          perc_Reflectance_Center15 = perc__Center15 - perc_Transmittance_Center15,
          perc_Reflectance_Center45 = perc__Center45 - perc_Transmittance_Center45
-         ) %>% 
+         ) %>% #creates new columns to get full maps of A, T, and R with arithmetic transforms
   pivot_longer(cols = starts_with(c("perc_")),
                names_to = c(NA, "mode", "method"), 
-               names_sep = "_") %>% 
-  left_join(fluid_metadata, by = c("sample_id"))
+               names_sep = "_") %>% #"lengthens" the data, makes it "tidy"
+  left_join(fluid_metadata, by = c("sample_id")) #adds in the metadata, matches metadata solely by the smaple_id
 
 dye_help_naught <- fluid_IS_with_metadata %>% 
-  filter(dye == "Baseline")
+  filter(dye == "Baseline") #takes only data marked with dye as baseline 
   
 dye_help_real <- fluid_IS_with_metadata %>% 
-  filter(dye != "Baseline")
+  filter(dye != "Baseline") #takes the complement to dye_help_naught
   
-dye_help_2 <- dye_help_real %>% count(dye, particle_size_um)
+dye_help_2 <- dye_help_real %>% count(dye, particle_size_um) #gets all unique combinations of dye and particle size
   
-dye2 <- data.frame()
+dye2 <- data.frame() #initializes an empty dataframe for recombination of baselines and dyes
   
 for(i in 1:nrow(dye_help_2)){
   dye_help_4 <- dye_help_naught %>% 
@@ -97,9 +107,9 @@ for(i in 1:nrow(dye_help_2)){
            particle_size_um = dye_help_2$particle_size_um[i])
   
   dye2 <- dye2 %>% rbind(dye_help_4)
-}
+} #creates copies of the baselines for each dye, particle size, and base fluid combination
 
-fluid_IS_with_metadata <- bind_rows(dye_help_real, dye2)
+fluid_IS_with_metadata <- bind_rows(dye_help_real, dye2) #binds the real data to the baseline copies
 
 ```
 
@@ -247,6 +257,16 @@ fluid_IS_with_metadata %>%
                   expand = F)
 
 ggsave("~/Research/harvard/Figures/white_comparison.png", units = "in", width = 13, height = 7)
+
+fluid_IS_with_metadata %>% 
+  filter(dye == "R960", 
+         str_detect(method, "Center"), 
+         mode == "Reflectance", 
+         concentration == 256) %>% 
+  ggplot(aes(x = wavelength_nm)) + 
+  geom_line(aes(y = value, group = interaction(method, concentration), color = method)) + 
+  scale_y_continuous(n.breaks = 6) +
+  labs
 ```
 
 #Films
@@ -328,6 +348,26 @@ film_full_IS <- film_UVVis_IS %>%
                               ), 
          mode = factor(mode, levels = c("Reflectance", "Transmittance", "Absorptance"))
          )
+
+write_csv(film_full_IS %>% 
+  select(!light_range) %>% 
+  drop_na(value) %>% 
+  pivot_wider(names_from = c(film, mode, measurement_num), 
+              values_from = value, 
+              id_cols = wavelength_nm
+              ), 
+  "~/Downloads/film_IS.csv")
+
+write_csv(film_FTIR_SR %>% 
+            select(wavelength_nm, value, film, mode, measurement_num) %>% 
+            drop_na(value) %>% 
+            pivot_wider(names_from = c(film, mode, measurement_num), 
+                        values_from = value, 
+                        id_cols = wavelength_nm), 
+          "~/Downloads/film_FTIR_SR.csv")
+
+write_csv(film_full_IS, 
+          "~/Downloads/film_full_IS_tidy.csv")
 
 ```
 
@@ -732,4 +772,47 @@ film_full_IS %>%
   summarise(value = mean(value), 
             .by = c(film)) %>% 
   arrange(desc(value))
+```
+
+
+```{r}
+gruk <- fluid_IS_with_metadata %>% 
+  bind_rows(UVVis_IS_summ %>% 
+              filter(solvent != "double") %>% 
+              mutate(concentration = concentration_value, 
+                     concentration_units = concentration_type, 
+                     value = mean,
+                     method = "standard-old",
+                     dye = case_when(dye == "TiO2-disp" ~ "TiO2_disp",
+                                     .default = dye),
+                     dye = str_extract(dye, ".+(?=-)|.+"),
+                     .keep = "unused") %>% 
+              left_join(read_sheet("https://docs.google.com/spreadsheets/d/1aE_7B4w25mkcCfTFVNW7fnLUJ7DIb__a023hfMivRus/edit?gid=1574835261#gid=1574835261", sheet = "fluids_old_method")) %>% 
+              select(!c(color, min, max))
+    )
+
+write_csv(gruk, "~/Downloads/all_fluid_IS_data.csv")
+
+write_csv(gruk %>% 
+            select(wavelength_nm, value, sample_id, mode, method) %>% 
+            drop_na(value) %>% 
+            pivot_wider(names_from = c(sample_id, mode, method),
+                        values_from = value,
+                        id_cols = wavelength_nm, 
+                        values_fn = mean), 
+          "~/Downloads/all_fluids_IS_data_excel_version.csv"
+            )
+
+write_csv(gruk %>% 
+            drop_na(value) %>% 
+            select(wavelength_nm, value, solvent, dye, particle_size_um, concentration, concentration_units, mode, method) %>% 
+            pivot_wider(names_from = c(solvent, dye, particle_size_um, concentration, concentration_units, mode, method),
+                        values_from = value,
+                        id_cols = wavelength_nm, 
+                        values_fn = mean), 
+          "~/Downloads/all_fluids_IS_data_excel_no-vlookup_version.csv"
+            )
+
+write_csv(gruk, 
+          "~/Downloads/all_fluids_IS_tidy.csv")
 ```
